@@ -3,7 +3,7 @@
 ; ==============================================================================
 ; BSD 3-Clause License
 ;
-; Copyright (c) 2025, Antigravity OS
+; Copyright (c) 2025, NeXs Operate System
 ; All rights reserved.
 ;
 ; Redistribution and use in source and binary forms, with or without
@@ -657,4 +657,5 @@ err_kern_disk:  db 'DISK READ FAIL', 0x0D, 0x0A, 0
 err_elf:        db 'ELF64 FAIL', 0x0D, 0x0A, 0
 
 ; Padding
+
 times (32 * 512)-($-$$) db 0
