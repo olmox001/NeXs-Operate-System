@@ -3,7 +3,7 @@
 ; ==============================================================================
 ; BSD 3-Clause License
 ;
-; Copyright (c) 2025, Antigravity OS
+; Copyright (c) 2025, NeXs Operate System
 ; All rights reserved.
 ;
 ; Redistribution and use in source and binary forms, with or without
@@ -174,4 +174,5 @@ err_s2:         db 'S2 INVALID', 0x0D, 0x0A, 0
 ; Boot Signature
 ; ==============================================================================
 times 510-($-$$) db 0   ; Pad remaining bytes with zeros
+
 dw 0xAA55               ; Magic Boot Signature
