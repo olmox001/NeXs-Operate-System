@@ -1,13 +1,46 @@
-// idt.c - Implementation
+/*
+ * idt.c - Interrupt Descriptor Table (IDT) Implementation
+ *
+ * BSD 3-Clause License
+ *
+ * Copyright (c) 2025, NeXs Operate System
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ *    contributors may be used to endorse or promote products derived from
+ *    this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include "idt.h"
 #include "vga.h"
 #include "libc.h"
 
-// IDT entries (256 total)
+// IDT Table Storage (256 Entries)
 static struct idt_entry idt[256];
 static struct idt_ptr idtp;
 
-// External assembly handlers
+// Architecture-specific External Assembly Stubs
 extern void isr0(void);
 extern void isr1(void);
 extern void isr2(void);
@@ -40,6 +73,7 @@ extern void isr28(void);
 extern void isr29(void);
 extern void isr30(void);
 extern void isr31(void);
+
 extern void irq0(void);
 extern void irq1(void);
 extern void irq2(void);
@@ -57,7 +91,7 @@ extern void irq13(void);
 extern void irq14(void);
 extern void irq15(void);
 
-// Exception messages
+// x86 CPU Exception Names
 const char* exception_messages[32] = {
     "Division By Zero",
     "Debug",
@@ -93,31 +127,35 @@ const char* exception_messages[32] = {
     "Reserved"
 };
 
-// Remap PIC (Programmable Interrupt Controller)
+/**
+ * Remap Programmable Interrupt Controller (PIC)
+ * Offsets standard IRQs (0-15) to standard CPU interrupts (32-47)
+ * to avoid conflict with CPU Exception vectors (0-31).
+ */
 static void pic_remap(void) {
-    // Save masks
+    // Save previous masks
     uint8_t a1 = inb(0x21);
     uint8_t a2 = inb(0xA1);
     
-    // Start initialization sequence
+    // Start initialization sequence (ICW1)
     outb(0x20, 0x11);
     io_wait();
     outb(0xA0, 0x11);
     io_wait();
     
-    // Set vector offsets (32-47 for IRQs)
-    outb(0x21, 0x20);
+    // Set vector offsets (ICW2)
+    outb(0x21, 0x20); // Master starts at 32 (0x20)
     io_wait();
-    outb(0xA1, 0x28);
+    outb(0xA1, 0x28); // Slave starts at 40 (0x28)
     io_wait();
     
-    // Set cascading
+    // Set cascading identity (ICW3)
     outb(0x21, 0x04);
     io_wait();
     outb(0xA1, 0x02);
     io_wait();
     
-    // Set 8086 mode
+    // Set 8086 mode (ICW4)
     outb(0x21, 0x01);
     io_wait();
     outb(0xA1, 0x01);
@@ -128,12 +166,16 @@ static void pic_remap(void) {
     outb(0xA1, a2);
 }
 
-// Load IDT
+/**
+ * Load IDT Entry into CPU Register
+ */
 static inline void idt_load(void) {
     asm volatile("lidt (%0)" : : "r"(&idtp));
 }
 
-// Set IDT gate
+/**
+ * Set a Gate in the IDT
+ */
 void idt_set_gate(uint8_t num, uint64_t handler, uint16_t selector, uint8_t flags) {
     idt[num].offset_low = handler & 0xFFFF;
     idt[num].offset_mid = (handler >> 16) & 0xFFFF;
@@ -144,35 +186,23 @@ void idt_set_gate(uint8_t num, uint64_t handler, uint16_t selector, uint8_t flag
     idt[num].zero = 0;
 }
 
-// Initialize IDT
+/**
+ * Initialize IDT Subsystem
+ */
 void idt_init(void) {
     idtp.limit = sizeof(idt) - 1;
     idtp.base = (uint64_t)&idt;
     
-    // Clear IDT
+    // Zero out table
     vga_puts("DEBUG: idt_init start\n");
     memset(&idt, 0, sizeof(idt));
     vga_puts("DEBUG: memset done\n");
     
-    // Remap PIC
+    // Remap IRQ controllers
     pic_remap();
     vga_puts("DEBUG: pic_remap done\n");
     
-    // Install exception handlers (0-31)
-    idt_set_gate(0, (uint64_t)isr0, 0x08, 0x8E);
-    idt_set_gate(14, (uint64_t)isr14, 0x08, 0x8E); // Page Fault
-    // ... we can just execute the whole block, or print in between
-    
-    // Install exception handlers loop? No, explicit calls.
-    // Let's assume setting gates is fine (just memory writes).
-    
-    int i;
-    // Just checking a few ranges
-    for (i=0; i<32; i++) {
-        // Assume these are fine
-    }
-    vga_puts("DEBUG: gates set\n");
-
+    // Install CPU Exception Handlers (0-31)
     idt_set_gate(0, (uint64_t)isr0, 0x08, 0x8E);
     idt_set_gate(1, (uint64_t)isr1, 0x08, 0x8E);
     idt_set_gate(2, (uint64_t)isr2, 0x08, 0x8E);
@@ -206,7 +236,7 @@ void idt_init(void) {
     idt_set_gate(30, (uint64_t)isr30, 0x08, 0x8E);
     idt_set_gate(31, (uint64_t)isr31, 0x08, 0x8E);
     
-    // Install IRQ handlers (32-47)
+    // Install IRQ Handlers (32-47)
     idt_set_gate(32, (uint64_t)irq0, 0x08, 0x8E);
     idt_set_gate(33, (uint64_t)irq1, 0x08, 0x8E);
     idt_set_gate(34, (uint64_t)irq2, 0x08, 0x8E);
@@ -226,22 +256,23 @@ void idt_init(void) {
     
     vga_puts("DEBUG: setup gates done\n");
 
-    // Load IDT
+    // Load table pointer
     idt_load();
     vga_puts("DEBUG: idt_load done\n");
-    
-    // Enable interrupts
-    // sti(); // Moved to kernel.c after verified initialization
 }
 
-// Exception handler (called from assembly)
+/**
+ * CPU Exception Dispatcher
+ * This function is called from the assembly stub when an exception occurs.
+ */
 void isr_exception_handler(struct interrupt_frame* frame) {
+    // Disable interrupts to prevent nested crashes
     cli();
     
     vga_set_color(VGA_WHITE, VGA_RED);
     vga_puts("\n\n*** KERNEL EXCEPTION ***\n");
     
-    // Verify interrupt number is within bounds
+    // Identify Exception
     if (frame->int_no < 32) {
         vga_puts("Exception: ");
         vga_puts(exception_messages[frame->int_no]);
@@ -253,12 +284,13 @@ void isr_exception_handler(struct interrupt_frame* frame) {
     vga_puts("\nError Code: ");
     vga_putx(frame->err_code);
     
-    // CR2 is crucial for Page Faults
+    // Dump CR2 (Fault Address) if Page Fault
     uint64_t cr2;
     asm volatile("mov %%cr2, %0" : "=r"(cr2));
     vga_puts("  CR2: ");
     vga_putx(cr2);
     
+    // Dump CPU State
     vga_puts("\nRIP: "); vga_putx(frame->rip);
     vga_puts("  CS: "); vga_putx(frame->cs);
     vga_puts("  RFLAGS: "); vga_putx(frame->rflags);
@@ -282,7 +314,6 @@ void isr_exception_handler(struct interrupt_frame* frame) {
     vga_puts("  R14: "); vga_putx(frame->r14);
     vga_puts("  R15: "); vga_putx(frame->r15);
     
-    // Instead of freezing, trigger the global panic handler
-    // This allows for Soft Recovery (Restart Shell)
+    // Trigger Global Panic (allows potential soft recovery in kernel.c)
     PANIC("Unhandled CPU Exception");
 }

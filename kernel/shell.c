@@ -1,4 +1,37 @@
-// shell.c - Implementation
+/*
+ * shell.c - Interactive Kernel Shell Implementation
+ *
+ * BSD 3-Clause License
+ *
+ * Copyright (c) 2025, NeXs Operate System
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ *    contributors may be used to endorse or promote products derived from
+ *    this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include "shell.h"
 #include "vga.h"
 #include "keyboard.h"
@@ -7,20 +40,19 @@
 #include "messages.h"
 #include "permissions.h"
 
-// Magic marker to verify kernel load integrity (placed in .data)
-// Must match what is checked in kernel.c
+// Integrity Marker (Used for memory layout verification in kernel.c)
 uint64_t __attribute__((section(".data"))) kernel_end_marker = 0xCAFEBABE12345678;
 
-// Command history
+// Command History Buffer
 static char cmd_history[SHELL_HISTORY_SIZE][SHELL_CMD_MAX];
 static int history_index = 0;
 static int history_count = 0;
 
-// Current command buffer
+// Current Input Line
 static char cmd_buffer[SHELL_CMD_MAX];
 static int cmd_pos = 0;
 
-// Forward declarations
+// Internal Command Prototypes
 static void cmd_help(void);
 static void cmd_clear(void);
 static void cmd_echo(const char* args);
@@ -30,7 +62,9 @@ static void cmd_msg(const char* args);
 static void cmd_version(void);
 static void cmd_uptime(void);
 
-// Print shell prompt
+/**
+ * Display Command Prompt
+ */
 static void print_prompt(void) {
     vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
     vga_puts("kernel");
@@ -38,7 +72,9 @@ static void print_prompt(void) {
     vga_puts("$ ");
 }
 
-// Add command to history
+/**
+ * Log command to history
+ */
 static void add_to_history(const char* cmd) {
     if (strlen(cmd) == 0) return;
     
@@ -51,7 +87,9 @@ static void add_to_history(const char* cmd) {
     }
 }
 
-// Initialize shell
+/**
+ * Initialize Shell State
+ */
 void shell_init(void) {
     for (int i = 0; i < SHELL_HISTORY_SIZE; i++) {
         cmd_history[i][0] = '\0';
@@ -62,7 +100,7 @@ void shell_init(void) {
     cmd_pos = 0;
     cmd_buffer[0] = '\0';
     
-    // Print banner
+    // Welcome Banner
     vga_set_color(VGA_LIGHT_CYAN, VGA_BLACK);
     vga_puts("\n=== x86_64 Kernel Shell ===\n");
     vga_set_color(VGA_YELLOW, VGA_BLACK);
@@ -70,7 +108,9 @@ void shell_init(void) {
     vga_set_color(VGA_WHITE, VGA_BLACK);
 }
 
-// Run shell main loop
+/**
+ * Main Shell Loop (Blocking)
+ */
 void shell_run(void) {
     print_prompt();
     
@@ -78,7 +118,7 @@ void shell_run(void) {
         char c = keyboard_getchar();
         
         if (c == '\n') {
-            // Execute command
+            // Execute Command
             vga_putc('\n');
             cmd_buffer[cmd_pos] = '\0';
             
@@ -87,20 +127,21 @@ void shell_run(void) {
                 shell_execute(cmd_buffer);
             }
             
+            // Reset Buffer
             cmd_pos = 0;
             cmd_buffer[0] = '\0';
             print_prompt();
             
         } else if (c == '\b') {
-            // Backspace
+            // Handle Backspace
             if (cmd_pos > 0) {
                 cmd_pos--;
                 vga_putc('\b');
             }
             
         } else if (c >= 32 && c < 127) {
-            // Printable character
-            ASSERT(cmd_pos < SHELL_CMD_MAX); // Should be guaranteed by check below
+            // Standard Characters
+            ASSERT(cmd_pos < SHELL_CMD_MAX);
             if (cmd_pos < SHELL_CMD_MAX - 1) {
                 cmd_buffer[cmd_pos++] = c;
                 vga_putc(c);
@@ -109,16 +150,18 @@ void shell_run(void) {
     }
 }
 
-// Execute command
+/**
+ * Command Parser and Dispatcher
+ */
 void shell_execute(const char* cmd) {
     ASSERT(cmd != NULL);
     
-    // Skip leading spaces
+    // Trim Leading Whitespace
     while (*cmd == ' ') cmd++;
     
     if (strlen(cmd) == 0) return;
     
-    // Parse command and arguments
+    // Split Command and Arguments
     char cmd_name[32];
     int i = 0;
     while (cmd[i] && cmd[i] != ' ' && i < 31) {
@@ -130,7 +173,7 @@ void shell_execute(const char* cmd) {
     const char* args = cmd + i;
     while (*args == ' ') args++;
     
-    // Execute command
+    // Dispatch Command
     if (strcmp(cmd_name, "help") == 0) {
         cmd_help();
     } else if (strcmp(cmd_name, "clear") == 0) {
@@ -156,7 +199,9 @@ void shell_execute(const char* cmd) {
     }
 }
 
-// Help command
+/**
+ * 'help' - List commands
+ */
 static void cmd_help(void) {
     vga_set_color(VGA_LIGHT_CYAN, VGA_BLACK);
     vga_puts("Available commands:\n");
@@ -172,18 +217,24 @@ static void cmd_help(void) {
     vga_puts("  uptime     - Show system uptime\n");
 }
 
-// Clear command
+/**
+ * 'clear' - Clear screen
+ */
 static void cmd_clear(void) {
     vga_clear();
 }
 
-// Echo command
+/**
+ * 'echo' - Print text
+ */
 static void cmd_echo(const char* args) {
     vga_puts(args);
     vga_putc('\n');
 }
 
-// Memory statistics command
+/**
+ * 'mem' - Memory Status
+ */
 static void cmd_mem(void) {
     size_t total, used, free_mem;
     buddy_stats(&total, &used, &free_mem);
@@ -209,7 +260,9 @@ static void cmd_mem(void) {
     vga_puts("%)\n");
 }
 
-// Permissions command
+/**
+ * 'perms' - Security Audit
+ */
 static void cmd_perms(const char* args) {
     uint32_t task_id = 0;
     if (strlen(args) > 0) {
@@ -248,7 +301,9 @@ static void cmd_perms(const char* args) {
     }
 }
 
-// Message command
+/**
+ * 'msg' - IPC Test
+ */
 static void cmd_msg(const char* args) {
     uint32_t target_id = atoi(args);
     
@@ -275,7 +330,9 @@ static void cmd_msg(const char* args) {
     }
 }
 
-// Version command
+/**
+ * 'version' - Kernel Stats
+ */
 static void cmd_version(void) {
     vga_set_color(VGA_LIGHT_CYAN, VGA_BLACK);
     vga_puts("x86_64 Kernel Version ");
@@ -289,7 +346,9 @@ static void cmd_version(void) {
     vga_putc('\n');
 }
 
-// Uptime command (stub - needs timer implementation)
+/**
+ * 'uptime' - Placeholder
+ */
 static void cmd_uptime(void) {
     vga_puts("System uptime: 0 seconds\n");
     vga_set_color(VGA_DARK_GREY, VGA_BLACK);

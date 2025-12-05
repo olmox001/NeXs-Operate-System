@@ -1,4 +1,37 @@
-// kernel.c - x86_64 Kernel Main Entry Point
+/*
+ * kernel.c - x86_64 Kernel Main Entry Point
+ *
+ * BSD 3-Clause License
+ *
+ * Copyright (c) 2025, NeXs Operate System
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ *    contributors may be used to endorse or promote products derived from
+ *    this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include "kernel.h"
 #include "vga.h"
 #include "serial.h"
@@ -13,7 +46,7 @@
 // External IRQ initialization (defined in handlers.c or interrupts.asm)
 void irq_init(void);
 
-// Print startup banner
+// Print startup banner to console
 static void print_banner(void) {
     vga_set_color(VGA_LIGHT_CYAN, VGA_BLACK);
     vga_puts("\n");
@@ -25,7 +58,7 @@ static void print_banner(void) {
     vga_set_color(VGA_WHITE, VGA_BLACK);
 }
 
-// Print initialization step
+// Print initialization step status
 static void print_init(const char* component, bool success) {
     vga_puts("  [");
     if (success) {
@@ -41,17 +74,22 @@ static void print_init(const char* component, bool success) {
     vga_putc('\n');
 }
 
-// Kernel main entry point
+/**
+ * Main Kernel Entry Point
+ * This function is called from the assembly stub `_start` in kernel_entry.asm.
+ */
 void kernel_main(struct boot_info* info) {
-    // Initialize Serial FIRST for debug logging (Headless support)
+    // 1. Initialize Serial Port FIRST for debug logging (Headless support)
     serial_init();
-    // Initialize VGA (now mirrors to serial)
+    
+    // 2. Initialize VGA Driver (now mirrors to serial)
     vga_init();
     
-    // Dual log
+    // Dual log to confirm entry
     vga_puts("DEBUG: Entered kernel_main\n");
     
-    // Validate boot info
+    // 3. Validate Boot Information Structure
+    // This structure is passed in RDI by the bootloader (Stage 2)
     if (info == NULL) {
         vga_puts("WARNING: info is NULL (Bootloader Issue?)\n");
     } else {
@@ -63,45 +101,47 @@ void kernel_main(struct boot_info* info) {
     if (!info || info->magic != 0xDEADBEEF) {
         vga_set_color(VGA_RED, VGA_BLACK);
         vga_puts("ERROR: Invalid boot info magic (soft pass)\n");
+        // We continue anyway to see how far we can get
         vga_set_color(VGA_WHITE, VGA_BLACK);
     } else {
         vga_puts("Boot Info OK\n");
     }
     
-    // Print banner
+    // 4. Display Welcome Banner
     print_banner();
     
-    // DEBUG: Direct write to video memory (Green 'X' at column 40)
+    // DEBUG: Direct write to video memory (Green 'X' visualization check)
     *((volatile uint16_t*)0xB8050) = 0x2F58; // 2F = White on Green, 58 = 'X'
     
     vga_set_color(VGA_YELLOW, VGA_BLACK);
     vga_puts("Initializing kernel subsystems...\n\n");
     vga_set_color(VGA_WHITE, VGA_BLACK);
 
-    // Initialize IDT
+    // 5. Initialize Interrupt Descriptor Table (IDT)
     vga_puts("DEBUG: Init IDT...\n");
     idt_init();
     print_init("Interrupt Descriptor Table", true);
     
-    // Initialize IRQ handlers
+    // 6. Initialize Interrupt Requests (IRQ)
     vga_puts("DEBUG: Init IRQ...\n");
     irq_init();
     print_init("IRQ Handlers", true);
     
-    // Initialize buddy allocator
+    // 7. Initialize Memory Manager (Buddy Allocator)
     vga_puts("DEBUG: Init Buddy...\n");
     
-    // Dynamic Heap Setup: Use memory between kernel end and stack (2MB)
+    // Dynamic Heap Setup: Use memory area after the kernel logic
+    // We assume the kernel is loaded at 1MB and ends at _kernel_end
     extern uint64_t _kernel_end;
-    // Page align up (assuming 4K pages)
+    // Align start address to next 4KB page
     uint64_t heap_start_addr = ((uint64_t)&_kernel_end + 4095) & ~4095;
     
-    // Allow 512KB heap
+    // Initialize 512KB heap
     buddy_init((void*)heap_start_addr, 0x80000); 
     
     print_init("Memory Allocator (Buddy)", true);
     
-    // Show memory statistics
+    // Display Memory Statistics
     size_t total, used, free_mem;
     buddy_stats(&total, &used, &free_mem);
     vga_puts("      Heap: ");
@@ -110,21 +150,19 @@ void kernel_main(struct boot_info* info) {
     vga_putx(heap_start_addr);
     vga_putc('\n');
     
-    // Initialize keyboard
+    // 8. Initialize Drivers & Subsystems
     vga_puts("DEBUG: Init Keyboard...\n");
     keyboard_init();
     print_init("PS/2 Keyboard Driver", true);
     
-    // Initialize message system
     msg_init();
     print_init("IPC Message System", true);
     
-    // Initialize permission system
     perm_init();
     print_init("Capability System (Royalty)", true);
     vga_puts("      Task 0 (kernel): All permissions\n");
     
-    // Create test task with permissions
+    // Create a demo task with user permissions
     int result = perm_create_task(1, 0, 
         PERM_MEMORY_ALLOC | PERM_MEMORY_FREE | 
         PERM_MSG_SEND | PERM_MSG_RECEIVE |
@@ -138,25 +176,10 @@ void kernel_main(struct boot_info* info) {
     vga_puts("==> Kernel initialization complete!\n\n");
     vga_set_color(VGA_WHITE, VGA_BLACK);
     
-    // Test memory (optional, keeping for validation)
-    /*
-    vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
-    vga_puts("Testing memory allocator...\n");
-    void* test_ptr = buddy_alloc(1024);
-    if (test_ptr) {
-        vga_puts("  Allocated 1KB at ");
-        vga_putx((uint64_t)test_ptr);
-        vga_putc('\n');
-        buddy_free(test_ptr);
-        vga_puts("  Freed successfully\n");
-    }
-    vga_putc('\n');
-    vga_set_color(VGA_WHITE, VGA_BLACK);
-    */
-    
-    // Initialize and run shell
+    // 9. Start User Shell
     vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
     vga_puts("Enabling Interrupts...\n");
+    // Enable CPU Interrupts (STI)
     sti();
     
     vga_puts("Starting Shell...\n");
@@ -166,16 +189,19 @@ void kernel_main(struct boot_info* info) {
     vga_puts("Ready.\n\n");
     vga_set_color(VGA_WHITE, VGA_BLACK);
     
-    // Enter shell loop (never returns)
+    // Enter Shell Loop (Should never return)
     shell_run();
     
-    // Should never reach here
+    // Trap if shell returns
     PANIC("Kernel main returned!");
 }
 
-// Global Panic Handler
+/**
+ * Global Kernel Panic Handler.
+ * Called when a critical error occurs.
+ */
 void kernel_panic(const char* message, const char* file, int line) {
-    // Disable interrupts to ensure atomic output
+    // Disable interrupts to stop the world
     cli();
 
     vga_set_color(VGA_WHITE, VGA_RED);
@@ -190,20 +216,20 @@ void kernel_panic(const char* message, const char* file, int line) {
     
     vga_puts("Attempting soft recovery...\n");
     
-    // Simple delay loop
+    // Busy wait delay
     for(volatile int i = 0; i < 10000000; i++); 
 
     vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
     vga_puts("Restarting Shell...\n");
     
-    // Enable interrupts
+    // Re-enable interrupts
     sti();
     
-    // Soft Reset
+    // Try to restart the shell
     shell_init();
     shell_run();
     
-    // Hard halt if recovery fails
+    // If recovery fails, hard halt
     vga_set_color(VGA_RED, VGA_BLACK);
     vga_puts("System Halted (Recovery Failed).");
     while(1) hlt();

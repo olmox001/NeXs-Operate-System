@@ -657,5 +657,4 @@ err_kern_disk:  db 'DISK READ FAIL', 0x0D, 0x0A, 0
 err_elf:        db 'ELF64 FAIL', 0x0D, 0x0A, 0
 
 ; Padding
-
 times (32 * 512)-($-$$) db 0

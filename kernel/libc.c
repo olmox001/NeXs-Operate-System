@@ -1,11 +1,46 @@
-// libc.c - Robust & Optimized Implementation
+/*
+ * libc.c - Minimal Standard C Library Implementation
+ *
+ * BSD 3-Clause License
+ *
+ * Copyright (c) 2025, NeXs Operate System
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ *    contributors may be used to endorse or promote products derived from
+ *    this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include "libc.h"
 
-// Optimized memset (64-bit aligned writes)
+/**
+ * Standard memset with 64-bit optimization
+ */
 void* memset(void* ptr, int value, size_t num) {
     ASSERT(ptr != NULL);
     
-    // Fill 8 bytes at a time if aligned
+    // Optimization: Fill 8 bytes at a time
     uint64_t* p64 = (uint64_t*)ptr;
     uint8_t v = (uint8_t)value;
     uint64_t v64 = 0;
@@ -15,21 +50,21 @@ void* memset(void* ptr, int value, size_t num) {
         v64 = (v64 << 8) | v;
     }
     
-    // Unaligned prefix
+    // Setup unaligned start
     uint8_t* p = (uint8_t*)ptr;
     while (num && ((uint64_t)p & 7)) {
         *p++ = v;
         num--;
     }
     
-    // Main loop
+    // Bulk fill
     p64 = (uint64_t*)p;
     while (num >= 8) {
         *p64++ = v64;
         num -= 8;
     }
     
-    // Suffix
+    // Fill remaining bytes
     p = (uint8_t*)p64;
     while (num--) {
         *p++ = v;
@@ -38,7 +73,10 @@ void* memset(void* ptr, int value, size_t num) {
     return ptr;
 }
 
-// Optimized memcpy
+/**
+ * Standard memcpy with optimization.
+ * Warning: Undefined behavior if regions overlap (use memmove).
+ */
 void* memcpy(void* dest, const void* src, size_t num) {
     ASSERT(dest != NULL);
     ASSERT(src != NULL);
@@ -46,18 +84,16 @@ void* memcpy(void* dest, const void* src, size_t num) {
     uint8_t* d = (uint8_t*)dest;
     const uint8_t* s = (const uint8_t*)src;
     
-    // Check for destructive overlap (src < dest < src+n)
+    // Fallback protection for overlap
     if (d > s && d < s + num) {
-        // Overlap! Must use memmove logic (copy backwards)
-        // Or panic if strict memcpy is required. Libc usually says undefined.
-        // We will just fall back to reverse copy here for safety.
+        // Overlap detected: Copy backwards
         d += num;
         s += num;
         while (num--) *(--d) = *(--s);
         return dest;
     }
 
-    // 64-bit copy if possible
+    // Optimization: Copy 8 bytes at a time
     while (num >= 8) {
         *(uint64_t*)d = *(const uint64_t*)s;
         d += 8;
@@ -71,6 +107,9 @@ void* memcpy(void* dest, const void* src, size_t num) {
     return dest;
 }
 
+/**
+ * Standard memmove (handles overlapping regions)
+ */
 void* memmove(void* dest, const void* src, size_t num) {
     ASSERT(dest != NULL);
     ASSERT(src != NULL);
@@ -79,7 +118,8 @@ void* memmove(void* dest, const void* src, size_t num) {
     const uint8_t* s = (const uint8_t*)src;
     
     if (d < s) {
-        // Forward copy
+        // Forward Copy
+        // Optimization: if aligned
         if ((uint64_t)d % 8 == (uint64_t)s % 8) {
              while (num >= 8) {
                 *(uint64_t*)d = *(const uint64_t*)s;
@@ -88,7 +128,7 @@ void* memmove(void* dest, const void* src, size_t num) {
         }
         while (num--) *d++ = *s++;
     } else {
-        // Backward copy
+        // Backward Copy
         d += num;
         s += num;
         while (num--) *(--d) = *(--s);
@@ -179,6 +219,9 @@ char* strchr(const char* str, int c) {
     return NULL;
 }
 
+/**
+ * Integer to String Conversion
+ */
 void itoa(int value, char* str, int base) {
     ASSERT(str != NULL);
     if (base < 2 || base > 36) { *str = 0; return; }
@@ -197,14 +240,15 @@ void itoa(int value, char* str, int base) {
     do {
         tmp_value = value;
         value /= base;
-        int rem = tmp_value - value * base; // Modulo
-        if (rem < 0) rem = -rem; // Handle special case min_int
+        int rem = tmp_value - value * base;
+        if (rem < 0) rem = -rem; // Min int edge case
         *ptr++ = "0123456789abcdefghijklmnopqrstuvwxyz"[rem];
     } while (value);
     
     if (negative) *ptr++ = '-';
     *ptr-- = '\0';
     
+    // Reverse string
     while(ptr1 < ptr) {
         tmp_char = *ptr;
         *ptr-- = *ptr1;
@@ -212,6 +256,9 @@ void itoa(int value, char* str, int base) {
     }
 }
 
+/**
+ * Unsigned Integer to String Conversion
+ */
 void uitoa(uint32_t value, char* str, int base) {
     ASSERT(str != NULL);
     char* ptr = str;

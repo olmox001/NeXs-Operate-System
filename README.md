@@ -1,4 +1,3 @@
-# NeXs-Operate-System
 # x86_64 Kernel & Bootloader
 
 # x86_64 Kernel & Bootloader
@@ -26,6 +25,12 @@ cd kernel
 ./build_kernel.sh
 ```
 
+### Build Options
+To build a highly optimized version of the kernel (using `-O3`), run:
+```bash
+./build_kernel.sh --release
+```
+
 ### Step 2: Assemble Bootloader & Launch
 This script assembles the Stage1/Stage2 bootloaders, creates the disk image, injects the kernel binary, and launches QEMU.
 
@@ -47,5 +52,3 @@ cd ../boot
 ## Troubleshooting
 *   **"Invalid Boot Info"**: Ensure you rebuilt the bootloader (Step 2) after any kernel changes.
 *   **No Output**: Check your terminal used for QEMU; serial logs should appear there.
-[README.md](https://github.com/user-attachments/files/23972021/README.md)
-ry kernel, and provides a dual-output (VGA+Serial) interactive shell with memory management and permission systems.

@@ -55,6 +55,7 @@ When control is transferred to the kernel:
 
 ## Build System
 *   **Stage 1**: `nasm -f bin boot/stage1.asm -o boot/stage1.bin`
+*   **Kernel**:  `./build_kernel.sh [--release]`
 *   **Stage 2**: `nasm -f bin boot/stage2.asm -o boot/stage2.bin`
 *   **Disk Image**: Concatenation of Stage 1 + Stage 2 + Kernel Binary.
 

@@ -174,5 +174,4 @@ err_s2:         db 'S2 INVALID', 0x0D, 0x0A, 0
 ; Boot Signature
 ; ==============================================================================
 times 510-($-$$) db 0   ; Pad remaining bytes with zeros
-
 dw 0xAA55               ; Magic Boot Signature
