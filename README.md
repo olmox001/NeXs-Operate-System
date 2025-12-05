@@ -1,3 +1,5 @@
+# NeXs Operate System V0.0.1 (bad_os)
+
 # x86_64 Kernel & Bootloader
 
 # x86_64 Kernel & Bootloader
@@ -52,3 +54,4 @@ cd ../boot
 ## Troubleshooting
 *   **"Invalid Boot Info"**: Ensure you rebuilt the bootloader (Step 2) after any kernel changes.
 *   **No Output**: Check your terminal used for QEMU; serial logs should appear there.
+
