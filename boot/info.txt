@@ -1,0 +1,61 @@
+# x86_64 Bootloader (Stage 1 & Stage 2)
+
+A custom two-stage bootstrap system for **x86_64 Long Mode**, featuring a complete transition from Real Mode to 64-bit mode and Flat Binary kernel loading.
+
+## Architecture
+
+### Stage 1 - Master Boot Record (MBR)
+**Load Address**: `0x7C00`
+**Size**: 512 bytes (1 sector)
+**Mode**: Real Mode (16-bit)
+
+#### Responsibilities
+1. **Environment Setup**: Initializes stack and segments.
+2. **LBA Detection**: Checks for INT 13h Extensions support.
+3. **Stage 2 Loading**: Loads 32 sectors (16KB) to `0x7E00`.
+4. **Validation**: Checks for the `0xAA55` signature.
+5. **Handoff**: Far jump to Stage 2.
+
+### Stage 2 - x86_64 Long Mode Loader
+**Load Address**: `0x7E00`
+**Size**: 16KB (32 sectors)
+**Mode**: Real Mode → Protected Mode → Long Mode (16→32→64 bit)
+
+#### Transition Pipeline
+1.  **Real Mode**: Enable A20 Gate.
+2.  **Load Kernel**: Reads Flat Binary from disk (Sector 64+) to `0x10000`.
+3.  **Validation**: Checks binary integrity (optional magic checks).
+4.  **Paging Setup**: Indentity Map the first 16MB using Huge Pages (2MB).
+5.  **GDT Setup**: Load 64-bit GDT.
+6.  **Enter Long Mode**: Enable PAE → Load CR3 → Enable LME → Enable Paging.
+7.  **Relocation**: Move kernel to `0x100000` (1MB).
+8.  **Execution**: Jump to Kernel Entry Point.
+
+## Technical Details
+
+### Memory Map (Physical)
+*   `0x000000 - 0x000FFF`: Real Mode IDT / BIOS Data
+*   `0x001000 - 0x004FFF`: Page Tables (PML4, PDPT, PDT)
+*   `0x007C00 - 0x007DFF`: Stage 1 (MBR)
+*   `0x007E00 - 0x00BE00`: Stage 2 (Loader)
+*   `0x010000 - 0x02FFFF`: Kernel Load Buffer (Temp)
+*   `0x0B8000 - 0x0BFFFF`: Video Memory (VGA)
+*   `0x100000 - 0x1FFFFF`: **Kernel Code & Data**
+*   `0x200000 - 0x2FFFFF`: **Kernel Stack & Heap**
+
+### Kernel Interface
+When control is transferred to the kernel:
+
+*   **RDI**: Pointer to `boot_info` structure (`magic` + `reserved`).
+*   **RSP**: `0x200000` (Stack Top).
+*   **RIP**: `0x100000` (Entry Point).
+*   **Mode**: 64-bit Long Mode, Interrupts Disabled.
+*   **CS**: `0x08` (64-bit Code).
+*   **DS/ES/SS**: `0x10` (Data).
+
+## Build System
+*   **Stage 1**: `nasm -f bin boot/stage1.asm -o boot/stage1.bin`
+*   **Stage 2**: `nasm -f bin boot/stage2.asm -o boot/stage2.bin`
+*   **Disk Image**: Concatenation of Stage 1 + Stage 2 + Kernel Binary.
+
+See `README.md` for full build instructions.
