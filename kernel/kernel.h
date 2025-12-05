@@ -60,7 +60,7 @@ struct boot_info {
 } __attribute__((packed));
 
 // Kernel Configuration Headers
-#define KERNEL_VERSION "1.0.0"
+#define KERNEL_VERSION "0.0.1"
 
 // Memory Layout Constants
 // Note: Heap is dynamically placed after kernel code in kernel_main
@@ -117,5 +117,6 @@ extern void kernel_panic(const char* message, const char* file, int line);
 
 #define PANIC(msg) kernel_panic(msg, __FILE__, __LINE__)
 #define ASSERT(b) ((b) ? (void)0 : kernel_panic(#b, __FILE__, __LINE__))
+
 
 #endif // KERNEL_H
