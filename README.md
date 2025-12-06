@@ -1,4 +1,4 @@
-# NeXs-OS - x86_64 Hobby Operating System
+# NeXs Operate System
 
 A minimal, educational 64-bit operating system kernel written from scratch in Assembly and C.
 
