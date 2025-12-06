@@ -1,0 +1,6 @@
+xorriso -as mkisofs \
+  -o bootdisk.iso \
+  -isohybrid-mbr bootdisk.img \
+  -eltorito-boot bootdisk.img \
+  -no-emul-boot \
+  bootdisk.img
