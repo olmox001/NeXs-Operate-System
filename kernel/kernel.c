@@ -42,6 +42,8 @@
 #include "messages.h"
 #include "permissions.h"
 #include "shell.h"
+#include "process.h"
+#include "syscall.h"
 
 // External IRQ initialization (defined in handlers.c or interrupts.asm)
 void irq_init(void);
@@ -127,17 +129,30 @@ void kernel_main(struct boot_info* info) {
     irq_init();
     print_init("IRQ Handlers", true);
     
-    // 7. Initialize Memory Manager (Buddy Allocator)
+    // 7. Initialize Memory Manager (Buddy Allocator with E820)
     vga_puts("DEBUG: Init Buddy...\n");
     
-    // Dynamic Heap Setup: Use memory area after the kernel logic
-    // We assume the kernel is loaded at 1MB and ends at _kernel_end
-    extern uint64_t _kernel_end;
-    // Align start address to next 4KB page
-    uint64_t heap_start_addr = ((uint64_t)&_kernel_end + 4095) & ~4095;
+    // Get E820 map from boot_info
+    struct boot_info* boot = info;
+    struct e820_entry* e820_entries = (struct e820_entry*)((uint64_t)info + sizeof(struct boot_info));
     
-    // Initialize 512KB heap
-    buddy_init((void*)heap_start_addr, 0x80000); 
+    // Display detected memory
+    vga_puts("      E820 entries: ");
+    vga_puti(boot->e820_count);
+    vga_puts(", Total: ");
+    vga_puti(boot->total_memory_mb);
+    vga_puts(" MB\n");
+    
+    // Initialize buddy with E820 (reserves secure region)
+    uint64_t secure_base = 0;
+    if (boot->e820_count > 0) {
+        buddy_init_e820(e820_entries, boot->e820_count, &secure_base);
+    } else {
+        // Fallback to static allocation
+        extern uint64_t _kernel_end;
+        uint64_t heap_start_addr = ((uint64_t)&_kernel_end + 4095) & ~4095;
+        buddy_init((void*)heap_start_addr, 0x80000);
+    }
     
     print_init("Memory Allocator (Buddy)", true);
     
@@ -146,8 +161,10 @@ void kernel_main(struct boot_info* info) {
     buddy_stats(&total, &used, &free_mem);
     vga_puts("      Heap: ");
     vga_puti(total / 1024);
-    vga_puts(" KB at ");
-    vga_putx(heap_start_addr);
+    vga_puts(" KB");
+    if (secure_base) {
+        vga_puts(" | Secure: 64 KB");
+    }
     vga_putc('\n');
     
     // 8. Initialize Drivers & Subsystems
@@ -176,24 +193,38 @@ void kernel_main(struct boot_info* info) {
     vga_puts("==> Kernel initialization complete!\n\n");
     vga_set_color(VGA_WHITE, VGA_BLACK);
     
-    // 9. Start User Shell
+    // 9. Start Multitasking (Priority Scheduler)
     vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
-    vga_puts("Enabling Interrupts...\n");
-    // Enable CPU Interrupts (STI)
-    sti();
+    vga_puts("DEBUG: Scheduler Init...\n");
+    scheduler_init();
+    print_init("Priority Scheduler", true);
     
-    vga_puts("Starting Shell...\n");
+    // Initialize Syscalls (INT 0x80)
+    syscall_init();
+    print_init("Syscall Interface (POSIX)", true);
+    
+    // Initialize Shell State
     shell_init();
     
-    vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
+    // Spawn Shell as HIGH priority task (interactive)
+    struct task* shell_task = task_create_priority(shell_run, PRIORITY_HIGH);
+    if (shell_task) {
+        shell_task->perm_mask = PERM_SHELL_ACCESS | PERM_MSG_SEND | PERM_MSG_RECEIVE;
+        vga_puts("      Shell Task (PID ");
+        vga_puti(shell_task->pid);
+        vga_puts(") Priority: HIGH\n");
+    }
+    print_init("Multitasking System", true);
+
+    vga_puts("Enabling Interrupts...\n");
+    sti();
+    
+    // The Kernel Main (Task 0) becomes the Idle task
+    // Priority IDLE, runs only when no other task is READY
     vga_puts("Ready.\n\n");
-    vga_set_color(VGA_WHITE, VGA_BLACK);
-    
-    // Enter Shell Loop (Should never return)
-    shell_run();
-    
-    // Trap if shell returns
-    PANIC("Kernel main returned!");
+    while(1) {
+        hlt();
+    }
 }
 
 /**

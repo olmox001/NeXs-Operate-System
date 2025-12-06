@@ -132,6 +132,88 @@ IRQ 14, 46      ; Primary ATA
 IRQ 15, 47      ; Secondary ATA
 
 ; ==============================================================================
+; Software Interrupt: Syscall (INT 0x80 = 128)
+; ==============================================================================
+global isr128
+extern syscall_handler
+isr128:
+    cli
+    push qword 0        ; Dummy error code
+    push qword 128      ; Interrupt number
+    
+    ; Save all registers (same as ISR/IRQ stubs)
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push rbp
+    push r8
+    push r9
+    push r10
+    push r11
+    push r12
+    push r13
+    push r14
+    push r15
+    
+    ; Save segment registers
+    mov rax, ds
+    push rax
+    mov rax, es
+    push rax
+    mov rax, fs
+    push rax
+    mov rax, gs
+    push rax
+    
+    ; Load kernel data segment
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    
+    ; Call C handler
+    ; syscall_handler(rax=syscall_num, rdi=arg1, rsi=arg2, rdx=arg3)
+    ; Registers are already set by caller, pass stack pointer
+    mov rdi, rsp
+    call syscall_handler
+    
+    ; Restore segment registers
+    pop rax
+    mov gs, ax
+    pop rax
+    mov fs, ax
+    pop rax
+    mov es, ax
+    pop rax
+    mov ds, ax
+    
+    ; Restore general purpose registers
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rbp
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
+    
+    ; Clean up stack
+    add rsp, 16
+    
+    iretq
+
+; ==============================================================================
 ; Common ISR Stub
 ; Saves CPU state and calls C Exception Handler
 ; ==============================================================================
@@ -222,6 +304,14 @@ irq_common_stub:
     
     ; Call C Handler
     call irq_common_handler
+
+    ; [NEW] Context Switch Hook
+    ; uint64_t scheduler_switch(uint64_t current_rsp);
+    ; Returns the new RSP (which might be the same as current_rsp)
+    extern scheduler_switch
+    mov rdi, rsp       ; Arg1: Current Stack Pointer
+    call scheduler_switch
+    mov rsp, rax       ; Update Stack Pointer (Switch Task)
     
 restore_context:
     ; Restore Segment Registers

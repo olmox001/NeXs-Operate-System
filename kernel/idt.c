@@ -91,6 +91,8 @@ extern void irq13(void);
 extern void irq14(void);
 extern void irq15(void);
 
+// Software Interrupt: Syscall (INT 0x80)
+extern void isr128(void);
 // x86 CPU Exception Names
 const char* exception_messages[32] = {
     "Division By Zero",
@@ -253,6 +255,9 @@ void idt_init(void) {
     idt_set_gate(45, (uint64_t)irq13, 0x08, 0x8E);
     idt_set_gate(46, (uint64_t)irq14, 0x08, 0x8E);
     idt_set_gate(47, (uint64_t)irq15, 0x08, 0x8E);
+    
+    // Install Syscall Handler (INT 0x80 = 128)
+    idt_set_gate(128, (uint64_t)isr128, 0x08, 0xEE); // 0xEE = Ring 3 callable trap gate
     
     vga_puts("DEBUG: setup gates done\n");
 

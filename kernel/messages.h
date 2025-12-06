@@ -1,35 +1,8 @@
 /*
- * messages.h - Inter-Process Communication (IPC) Definitions
+ * messages.h - IPC Message System with Slab Allocator
  *
  * BSD 3-Clause License
- *
  * Copyright (c) 2025, NeXs Operate System
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * 3. Neither the name of the copyright holder nor the names of its
- *    contributors may be used to endorse or promote products derived from
- *    this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef MESSAGES_H
@@ -37,52 +10,70 @@
 
 #include "kernel.h"
 
-#define MSG_MAX_SIZE 256
-#define MSG_QUEUE_SIZE 64
+// Message Size Classes (slab allocator)
+#define MSG_SLAB_16     0
+#define MSG_SLAB_64     1
+#define MSG_SLAB_256    2
+#define MSG_SLAB_1024   3
+#define MSG_SLAB_4096   4
+#define MSG_SLAB_COUNT  5
+
+#define MSG_MAX_SIZE    4096
+#define MSG_QUEUE_SIZE  64
 
 // Standard Message Types
 enum msg_type {
-    MSG_TYPE_DATA = 1,      // Raw Data Payload
-    MSG_TYPE_SIGNAL = 2,    // Control Signal
-    MSG_TYPE_REQUEST = 3,   // Service Request
-    MSG_TYPE_RESPONSE = 4,  // Service Response
+    MSG_TYPE_DATA = 1,
+    MSG_TYPE_SIGNAL = 2,
+    MSG_TYPE_REQUEST = 3,
+    MSG_TYPE_RESPONSE = 4,
+    MSG_TYPE_POINTER = 5,   // Zero-copy pointer message
 };
 
-// Message Envelope
+// Message Envelope (variable size)
 struct message {
-    uint32_t sender_id;         // Source Task ID
-    uint32_t receiver_id;       // Destination Task ID (0 for Broadcast)
-    uint32_t type;              // Message protocol type
-    uint32_t size;              // Payload size in bytes
-    uint8_t data[MSG_MAX_SIZE]; // Payload Buffer
-    uint64_t timestamp;         // System Tick Timestamp
+    uint32_t sender_id;
+    uint32_t receiver_id;
+    uint32_t type;
+    uint32_t size;          // Actual data size
+    uint32_t slab_class;    // Which slab allocated from
+    uint32_t flags;
+    uint64_t timestamp;
+    uint8_t  data[];        // Flexible array member
 };
 
-// Circular Message Queue
+// Message Queue (uses pointers to messages)
 struct msg_queue {
-    struct message messages[MSG_QUEUE_SIZE];
+    struct message* messages[MSG_QUEUE_SIZE];
     uint32_t read_pos;
     uint32_t write_pos;
     uint32_t count;
 };
 
-// Initialize IPC System
+// Initialize IPC System (with slab allocator)
 void msg_init(void);
 
-// Send Message (0 = Success, -1 = Error)
-int msg_send(uint32_t sender, uint32_t receiver, uint32_t type, 
+// Allocate/Free message buffers
+struct message* msg_alloc(size_t data_size);
+void msg_free(struct message* msg);
+
+// Send Message
+int msg_send(uint32_t sender, uint32_t receiver, uint32_t type,
              const void* data, uint32_t size);
 
-// Receive Message (Blocking)
+// Send zero-copy pointer message
+int msg_send_ptr(uint32_t sender, uint32_t receiver, void* ptr, uint32_t size);
+
+// Receive Message (blocking)
 int msg_receive(uint32_t receiver, struct message* msg);
 
-// Check if Queue has messages
+// Check for pending messages
 bool msg_available(uint32_t receiver);
 
-// Get number of pending messages
+// Get pending count
 uint32_t msg_count(uint32_t receiver);
 
-// Discard all pending messages
+// Clear queue
 void msg_clear(uint32_t receiver);
 
 #endif // MESSAGES_H

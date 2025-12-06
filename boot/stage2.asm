@@ -88,6 +88,11 @@ _start:
     call print
     
     ; ========================================================================
+    ; PHASE 1.5: Detect Memory Map (E820)
+    ; ========================================================================
+    call detect_e820
+    
+    ; ========================================================================
     ; PHASE 2: Load Kernel
     ; ========================================================================
     ; Loads the Flat Binary kernel from disk to a temporary buffer
@@ -226,6 +231,83 @@ test_a20:
     xor ax, ax
 .done:
     pop ds
+    pop es
+    ret
+
+; ==============================================================================
+; E820 Memory Map Detection
+; Uses BIOS INT 15h, EAX=0xE820
+; Stores entries in e820_map, count in boot_info
+; ==============================================================================
+detect_e820:
+    push es
+    push di
+    push ebx
+    push ecx
+    push edx
+    
+    xor ebx, ebx                        ; Continuation value (0 to start)
+    mov di, e820_map                    ; ES:DI = destination buffer
+    xor ax, ax
+    mov es, ax                          ; ES = 0 (Real mode addressing)
+    add di, 0x7E00                      ; Adjust for ORG offset
+    sub di, 0x7E00                      ; Actually just use absolute
+    mov word [boot_info + 8], 0         ; Clear e820_count
+    xor bp, bp                          ; Entry counter
+    
+.loop:
+    mov eax, 0xE820                     ; Function code
+    mov ecx, 24                         ; Entry size (24 bytes)
+    mov edx, 0x534D4150                 ; 'SMAP' signature
+    int 0x15
+    
+    jc .done                            ; CF set = error or done
+    cmp eax, 0x534D4150                 ; Must return 'SMAP'
+    jne .done
+    
+    ; Valid entry received
+    inc bp                              ; Increment counter
+    add di, 24                          ; Move to next entry slot
+    
+    cmp bp, 32                          ; Max 32 entries
+    jge .done
+    
+    test ebx, ebx                       ; EBX=0 means last entry
+    jnz .loop
+    
+.done:
+    ; Store entry count
+    mov word [boot_info + 8], bp
+    
+    ; Calculate total usable memory (simplified: sum type=1 entries)
+    xor eax, eax                        ; Total in bytes (low 32 bits)
+    mov cx, bp                          ; Entry count
+    mov di, e820_map
+    
+.sum_loop:
+    test cx, cx
+    jz .sum_done
+    
+    cmp dword [di + 16], 1              ; Type == 1 (usable)?
+    jne .skip_entry
+    
+    ; Add length (simplified, assumes < 4GB)
+    add eax, [di + 8]                   ; Add length low dword
+    
+.skip_entry:
+    add di, 24
+    dec cx
+    jmp .sum_loop
+    
+.sum_done:
+    ; Convert to MB and store
+    shr eax, 20                         ; Divide by 1MB
+    mov [boot_info + 12], eax           ; Store total_memory_mb
+    
+    pop edx
+    pop ecx
+    pop ebx
+    pop di
     pop es
     ret
 
@@ -641,7 +723,17 @@ gdt64_descriptor:
 align 8
 boot_info:
     dq 0xDEADBEEF                       ; Magic Signature
-    dq 0                                ; Reserved
+    dw 0                                ; e820_count (filled by detect_e820)
+    dw 0                                ; reserved
+    dd 0                                ; total_memory_mb (filled by detect_e820)
+    dq 0                                ; secure_base (set by kernel)
+    dq 0                                ; heap_base
+    dq 0                                ; heap_size
+
+; E820 Memory Map (up to 32 entries, 24 bytes each)
+align 8
+e820_map:
+    times 32 * 24 db 0                  ; 768 bytes for E820 entries
 
 ; Messages
 msg_s2_start:   db '[S2] x64 init', 0x0D, 0x0A, 0
