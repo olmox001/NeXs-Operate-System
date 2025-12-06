@@ -1,210 +1,192 @@
 /*
- * messages.c - Inter-Process Communication (IPC) Message System
+ * messages.c - IPC Message System with Slab Allocator
  *
  * BSD 3-Clause License
- *
  * Copyright (c) 2025, NeXs Operate System
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * 3. Neither the name of the copyright holder nor the names of its
- *    contributors may be used to endorse or promote products derived from
- *    this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "messages.h"
 #include "libc.h"
 #include "buddy.h"
+#include "handlers.h"
 
-// Dynamic Array of Task Message Queues
+// Slab size table
+static const size_t slab_sizes[MSG_SLAB_COUNT] = {16, 64, 256, 1024, 4096};
+
+// Slab free lists
+struct slab_block {
+    struct slab_block* next;
+};
+static struct slab_block* slab_free[MSG_SLAB_COUNT];
+static uint32_t slab_alloc_count[MSG_SLAB_COUNT];
+
+// Task queues
 static struct msg_queue* task_queues[MAX_TASKS];
-static uint64_t system_ticks = 0;
 
-/**
- * Initialize Message System
- */
+// Select appropriate slab class for size
+static int size_to_slab(size_t size) {
+    for (int i = 0; i < MSG_SLAB_COUNT; i++) {
+        if (size <= slab_sizes[i]) return i;
+    }
+    return -1; // Too large
+}
+
 void msg_init(void) {
     for (int i = 0; i < MAX_TASKS; i++) {
         task_queues[i] = NULL;
     }
-    system_ticks = 0;
-    
-    // System Integrity Check
-    ASSERT(system_ticks == 0);
+    for (int i = 0; i < MSG_SLAB_COUNT; i++) {
+        slab_free[i] = NULL;
+        slab_alloc_count[i] = 0;
+    }
 }
 
-/**
- * Retrieve or allocate a message queue for a task
- */
-static struct msg_queue* get_queue(uint32_t task_id) {
-    if (task_id >= MAX_TASKS) {
-        PANIC("Invalid Task ID in Msg System");
-        return NULL;
+struct message* msg_alloc(size_t data_size) {
+    int slab = size_to_slab(data_size);
+    if (slab < 0) return NULL;
+    
+    size_t total = sizeof(struct message) + slab_sizes[slab];
+    struct message* msg;
+    
+    // Check slab free list first
+    if (slab_free[slab]) {
+        msg = (struct message*)slab_free[slab];
+        slab_free[slab] = slab_free[slab]->next;
+    } else {
+        // Allocate from buddy
+        msg = (struct message*)buddy_alloc(total);
+        if (!msg) return NULL;
+        slab_alloc_count[slab]++;
     }
     
+    memset(msg, 0, total);
+    msg->slab_class = slab;
+    msg->size = data_size;
+    return msg;
+}
+
+void msg_free(struct message* msg) {
+    if (!msg) return;
+    
+    // Return to slab free list
+    struct slab_block* blk = (struct slab_block*)msg;
+    blk->next = slab_free[msg->slab_class];
+    slab_free[msg->slab_class] = blk;
+}
+
+static struct msg_queue* get_queue(uint32_t task_id) {
+    if (task_id >= MAX_TASKS) return NULL;
+    
     if (!task_queues[task_id]) {
-        // Lazy Allocation
         task_queues[task_id] = (struct msg_queue*)buddy_alloc(sizeof(struct msg_queue));
         if (task_queues[task_id]) {
             memset(task_queues[task_id], 0, sizeof(struct msg_queue));
         }
     }
-    
     return task_queues[task_id];
 }
 
-/**
- * Send a Message
- */
 int msg_send(uint32_t sender, uint32_t receiver, uint32_t type,
              const void* data, uint32_t size) {
+    if (size > MSG_MAX_SIZE) return -1;
     
-    // Validate Message Size
-    if (size > MSG_MAX_SIZE) {
-        return -1; // overflow
-    }
-    
-    // Validate Receiver ID
-    if (receiver >= MAX_TASKS && receiver != 0) {
-        return -1; // Invalid target
-    }
-    
-    system_ticks++;
-    
-    // Handle Broadcast (Receiver ID 0)
+    // Handle broadcast
     if (receiver == 0) {
         int success = 0;
-        for (uint32_t i = 1; i < MAX_TASKS; i++) { // Skip Task 0 (Kernel) usually, but logic allows it
+        for (uint32_t i = 1; i < MAX_TASKS; i++) {
             if (i != sender && task_queues[i]) {
-                if (msg_send(sender, i, type, data, size) == 0) {
-                    success++;
-                }
+                if (msg_send(sender, i, type, data, size) == 0) success++;
             }
         }
         return success > 0 ? 0 : -1;
     }
     
     struct msg_queue* queue = get_queue(receiver);
-    if (!queue) {
-        return -1; // Allocation failure
-    }
+    if (!queue) return -1;
+    if (queue->count >= MSG_QUEUE_SIZE) return -1;
     
-    // Check for Queue Capacity
-    if (queue->count >= MSG_QUEUE_SIZE) {
-        return -1; // Queue Full (Drop Message)
-    }
+    struct message* msg = msg_alloc(size);
+    if (!msg) return -1;
     
-    // Enqueue Message
-    struct message* msg = &queue->messages[queue->write_pos];
     msg->sender_id = sender;
     msg->receiver_id = receiver;
     msg->type = type;
-    msg->size = size;
-    msg->timestamp = system_ticks;
+    msg->timestamp = get_timer_ticks();
     
     if (data && size > 0) {
         memcpy(msg->data, data, size);
     }
     
+    queue->messages[queue->write_pos] = msg;
     queue->write_pos = (queue->write_pos + 1) % MSG_QUEUE_SIZE;
     queue->count++;
     
     return 0;
 }
 
-/**
- * Receive a Message (Blocking)
- */
-int msg_receive(uint32_t receiver, struct message* msg) {
-    if (!msg) {
-        return -1;
-    }
+int msg_send_ptr(uint32_t sender, uint32_t receiver, void* ptr, uint32_t size) {
+    struct msg_queue* queue = get_queue(receiver);
+    if (!queue) return -1;
+    if (queue->count >= MSG_QUEUE_SIZE) return -1;
+    
+    struct message* msg = msg_alloc(sizeof(void*));
+    if (!msg) return -1;
+    
+    msg->sender_id = sender;
+    msg->receiver_id = receiver;
+    msg->type = MSG_TYPE_POINTER;
+    msg->size = size;
+    msg->timestamp = get_timer_ticks();
+    *(void**)msg->data = ptr;
+    
+    queue->messages[queue->write_pos] = msg;
+    queue->write_pos = (queue->write_pos + 1) % MSG_QUEUE_SIZE;
+    queue->count++;
+    
+    return 0;
+}
+
+int msg_receive(uint32_t receiver, struct message* out_msg) {
+    if (!out_msg) return -1;
     
     struct msg_queue* queue = get_queue(receiver);
-    if (!queue) {
-        return -1;
-    }
+    if (!queue) return -1;
     
-    // Wait for message (Spin/Sleep Loop)
     while (queue->count == 0) {
-        hlt(); // Wait for interrupt (e.g., timer or I/O)
+        hlt();
     }
     
-    // Dequeue Message
-    memcpy(msg, &queue->messages[queue->read_pos], sizeof(struct message));
+    struct message* msg = queue->messages[queue->read_pos];
+    memcpy(out_msg, msg, sizeof(struct message) + msg->size);
     
+    msg_free(msg);
     queue->read_pos = (queue->read_pos + 1) % MSG_QUEUE_SIZE;
     queue->count--;
     
     return 0;
 }
 
-/**
- * Check for Pending Messages (Non-Blocking)
- */
 bool msg_available(uint32_t receiver) {
-    if (receiver >= MAX_TASKS) {
-        return false;
-    }
-    
+    if (receiver >= MAX_TASKS) return false;
     struct msg_queue* queue = task_queues[receiver];
-    if (!queue) {
-        return false;
-    }
-    
-    return queue->count > 0;
+    return queue && queue->count > 0;
 }
 
-/**
- * Get Pending Message Count
- */
 uint32_t msg_count(uint32_t receiver) {
-    if (receiver >= MAX_TASKS) {
-        return 0;
-    }
-    
+    if (receiver >= MAX_TASKS) return 0;
     struct msg_queue* queue = task_queues[receiver];
-    if (!queue) {
-        return 0;
-    }
-    
-    return queue->count;
+    return queue ? queue->count : 0;
 }
 
-/**
- * Flush Message Queue
- */
 void msg_clear(uint32_t receiver) {
-    if (receiver >= MAX_TASKS) {
-        return;
-    }
-    
+    if (receiver >= MAX_TASKS) return;
     struct msg_queue* queue = task_queues[receiver];
-    if (!queue) {
-        return;
-    }
+    if (!queue) return;
     
-    queue->read_pos = 0;
-    queue->write_pos = 0;
-    queue->count = 0;
+    // Free all queued messages
+    while (queue->count > 0) {
+        msg_free(queue->messages[queue->read_pos]);
+        queue->read_pos = (queue->read_pos + 1) % MSG_QUEUE_SIZE;
+        queue->count--;
+    }
 }

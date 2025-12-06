@@ -1,6 +1,6 @@
 # x86_64 Bootloader (Stage 1 & Stage 2)
 
-A custom two-stage bootstrap system for **x86_64 Long Mode**, featuring a complete transition from Real Mode to 64-bit mode and Flat Binary kernel loading.
+A custom two-stage bootstrap system for **x86_64 Long Mode**, featuring a complete transition from Real Mode to 64-bit mode, E820 memory detection, and Flat Binary kernel loading.
 
 ## Architecture
 
@@ -23,40 +23,75 @@ A custom two-stage bootstrap system for **x86_64 Long Mode**, featuring a comple
 
 #### Transition Pipeline
 1.  **Real Mode**: Enable A20 Gate.
-2.  **Load Kernel**: Reads Flat Binary from disk (Sector 64+) to `0x10000`.
-3.  **Validation**: Checks binary integrity (optional magic checks).
-4.  **Paging Setup**: Indentity Map the first 16MB using Huge Pages (2MB).
+2.  **E820 Memory Detection**: Query BIOS for memory map (up to 32 entries).
+3.  **Load Kernel**: Reads Flat Binary from disk (Sector 64+) to `0x10000`.
+4.  **Paging Setup**: Identity Map the first 16MB using Huge Pages (2MB).
 5.  **GDT Setup**: Load 64-bit GDT.
 6.  **Enter Long Mode**: Enable PAE → Load CR3 → Enable LME → Enable Paging.
 7.  **Relocation**: Move kernel to `0x100000` (1MB).
-8.  **Execution**: Jump to Kernel Entry Point.
+8.  **Execution**: Jump to Kernel Entry Point with `boot_info` in RDI.
+
+## boot_info Structure
+
+Passed to kernel in RDI register:
+
+```c
+struct boot_info {
+    uint64_t magic;           // 0xDEADBEEF
+    uint16_t e820_count;      // Number of E820 entries
+    uint16_t reserved;
+    uint32_t total_memory_mb; // Total usable RAM in MB
+    uint64_t secure_base;     // Secure key storage (set by kernel)
+    uint64_t heap_base;       // Heap start
+    uint64_t heap_size;       // Heap size
+};
+
+// E820 entries follow boot_info (24 bytes each)
+struct e820_entry {
+    uint64_t base;
+    uint64_t length;
+    uint32_t type;    // 1=Usable, 2=Reserved, 3=ACPI, 4=NVS
+    uint32_t attrs;
+};
+```
 
 ## Technical Details
 
 ### Memory Map (Physical)
 *   `0x000000 - 0x000FFF`: Real Mode IDT / BIOS Data
-*   `0x001000 - 0x004FFF`: Page Tables (PML4, PDPT, PDT)
+*   `0x001000 - 0x003FFF`: Page Tables (PML4, PDPT, PDT)
 *   `0x007C00 - 0x007DFF`: Stage 1 (MBR)
 *   `0x007E00 - 0x00BE00`: Stage 2 (Loader)
+*   `0x008500 - 0x008570`: boot_info structure
+*   `0x008570 - 0x008870`: E820 memory map (32 entries × 24 bytes)
 *   `0x010000 - 0x02FFFF`: Kernel Load Buffer (Temp)
 *   `0x0B8000 - 0x0BFFFF`: Video Memory (VGA)
 *   `0x100000 - 0x1FFFFF`: **Kernel Code & Data**
-*   `0x200000 - 0x2FFFFF`: **Kernel Stack & Heap**
+*   `0x200000+`: **Dynamic Heap** (from E820)
 
 ### Kernel Interface
 When control is transferred to the kernel:
 
-*   **RDI**: Pointer to `boot_info` structure (`magic` + `reserved`).
+*   **RDI**: Pointer to `boot_info` structure.
 *   **RSP**: `0x200000` (Stack Top).
 *   **RIP**: `0x100000` (Entry Point).
 *   **Mode**: 64-bit Long Mode, Interrupts Disabled.
 *   **CS**: `0x08` (64-bit Code).
 *   **DS/ES/SS**: `0x10` (Data).
 
+### E820 Memory Types
+| Type | Description |
+|------|-------------|
+| 1 | Usable RAM |
+| 2 | Reserved |
+| 3 | ACPI Reclaimable |
+| 4 | ACPI NVS |
+| 5 | Bad Memory |
+
 ## Build System
 *   **Stage 1**: `nasm -f bin boot/stage1.asm -o boot/stage1.bin`
-*   **Kernel**:  `./build_kernel.sh [--release]`
 *   **Stage 2**: `nasm -f bin boot/stage2.asm -o boot/stage2.bin`
-*   **Disk Image**: Concatenation of Stage 1 + Stage 2 + Kernel Binary.
+*   **Kernel**:  `./build_kernel.sh [--release]`
+*   **Test**: `./build_and_test.sh` (creates disk image and runs QEMU)
 
 See `README.md` for full build instructions.

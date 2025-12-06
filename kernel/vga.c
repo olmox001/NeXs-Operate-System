@@ -98,19 +98,27 @@ void vga_set_color(uint8_t fg, uint8_t bg) {
 }
 
 /**
- * Scroll the screen up by one line
+ * Scroll the screen up by one line (optimized)
  */
 void vga_scroll(void) {
-    // Shift all lines up
-    for (int y = 0; y < VGA_HEIGHT - 1; y++) {
-        for (int x = 0; x < VGA_WIDTH; x++) {
-            vga_buffer[y * VGA_WIDTH + x] = vga_buffer[(y + 1) * VGA_WIDTH + x];
-        }
+    // Fast copy using word-sized operations
+    volatile uint16_t* dst = vga_buffer;
+    volatile uint16_t* src = vga_buffer + VGA_WIDTH;
+    int count = VGA_WIDTH * (VGA_HEIGHT - 1);
+    
+    // Use 64-bit copies for speed (4 characters at a time)
+    volatile uint64_t* dst64 = (volatile uint64_t*)dst;
+    volatile uint64_t* src64 = (volatile uint64_t*)src;
+    int count64 = count / 4;
+    for (int i = 0; i < count64; i++) {
+        dst64[i] = src64[i];
     }
     
     // Clear bottom line
+    uint16_t blank = (uint16_t)' ' | ((uint16_t)current_color << 8);
+    dst = vga_buffer + VGA_WIDTH * (VGA_HEIGHT - 1);
     for (int x = 0; x < VGA_WIDTH; x++) {
-        vga_buffer[(VGA_HEIGHT - 1) * VGA_WIDTH + x] = vga_entry(' ', current_color);
+        dst[x] = blank;
     }
     
     cursor_y = VGA_HEIGHT - 1;

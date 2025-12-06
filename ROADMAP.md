@@ -1,60 +1,129 @@
-### NeXs-OS Development Roadmap
+# NeXs-OS Development Roadmap
 
-#### Phase 1 – Core Kernel Foundations (already completed)
-- Custom 2-stage x86-64 bootloader (Real → Protected → Long Mode)
-- Pure 64-bit kernel entry at 0x100000
-- Dual VGA + serial console output
-- Full IDT with exception & IRQ handling
-- PS/2 keyboard driver (IRQ1)
-- PIT timer (IRQ0) functional
-- Buddy allocator with overflow protection & checksums
-- Basic permission system
-- Interactive shell with built-in commands
+## Phase 1: Bootloader & Core ✅
+- [x] Stage1 MBR bootloader (512 bytes)
+- [x] Stage2 protected mode loader
+- [x] A20 gate enable
+- [x] Long Mode (x86_64) transition
+- [x] GDT for 64-bit code/data segments
+- [x] Identity paging (first 16MB, 2MB huge pages)
+- [x] Flat binary kernel loading
 
-#### Phase 2 – Multitasking & Process Management (current priority)
-- Task Control Block (TCB) and process structure
-- Separate kernel stack per task
-- TSS and hardware context switching support
-- Context switch on PIT tick (preemptive)
-- Round-robin scheduler
-- Voluntary yield() and sleep(ms) primitives
-- fork(), exit(), wait() system calls
-- Process isolation (separate address spaces – later)
+## Phase 2: Interrupts & Exceptions ✅
+- [x] IDT setup (256 entries)
+- [x] ISR stubs (exceptions 0-31)
+- [x] IRQ stubs (hardware 32-47)
+- [x] PIC 8259 remapping
+- [x] Exception handler with register dump
+- [x] Software interrupt (INT 0x80)
 
-#### Phase 3 – System Call Interface
-- Modern syscall/sysret interface (IA32_LSTAR, IA32_STAR, IA32_FMASK)
-- Syscall dispatcher table
-- Basic syscalls: write, read, sleep, exit, getpid, yield, execve
+## Phase 3: Memory Management ✅
+- [x] Buddy allocator (4KB-16MB blocks)
+- [x] E820 BIOS memory map detection
+- [x] Dynamic heap sizing from E820
+- [x] Secure memory region (64KB hidden)
+- [x] Slab allocator for messages
+- [x] Global memory statistics
 
-#### Phase 4 – Storage & Block Layer
-- ATA/ATAPI PIO driver (primary master)
-- Generic block device abstraction
-- Sector read/write cache (simple)
-- Support for multiple partitions (MBR)
+## Phase 4: Timing System ✅
+- [x] PIT configuration (1000Hz scheduler tick)
+- [x] TSC (Time Stamp Counter) support
+- [x] TSC frequency calibration via PIT
+- [x] Nanosecond precision timing
+- [x] High-resolution delays (ns/us/ms)
+- [x] Uptime tracking
 
-#### Phase 5 – File System
-- FAT12/16/32 read-only support (priority: FAT32)
-- Virtual File System (VFS) layer
-- File operations: open, read, close, readdir
-- execve() loading ELF64 executables from disk
-- (Later) FAT32 read-write
-- (Future) Custom simple ext2-like FS
+## Phase 5: Multitasking ✅
+- [x] Task structure with context
+- [x] Priority-based scheduler (256 levels)
+- [x] Preemptive context switching
+- [x] Task states (READY, RUNNING, SLEEPING, WAITING, DEAD)
+- [x] UID system (Kernel=0, Root=1, User=2)
+- [x] Time quantum per priority
+- [x] yield() and sleep() functions
+- [x] Idle task
 
-#### Phase 6 – Advanced Features
-- User mode & ring 3 execution
-- Proper memory isolation per process (paging per task)
-- Signals
-- Basic ELF loader with dynamic linking stubs
-- Simple malloc/free in user space
-- Multi-core (SMP) bring-up
-- USB stack (UHCI/OHCI/EHCI)
-- Networking (RTL8139 or e1000)
+## Phase 6: System Calls ✅
+- [x] INT 0x80 syscall mechanism
+- [x] POSIX-like syscall numbers
+- [x] Syscall dispatcher
+- [x] SYS_READ, SYS_WRITE
+- [x] SYS_GETPID, SYS_EXIT, SYS_YIELD, SYS_SLEEP
+- [x] SYS_UPTIME, SYS_MEMINFO, SYS_TASKINFO
+- [x] SYS_GETTIME_NS, SYS_GETFREQ (TSC access)
+- [x] SYS_MSGSND, SYS_MSGRCV (IPC)
 
-#### Phase 7 – Polish & Real Hardware
-- USB boot support
-- APIC & IOAPIC
-- ACPI parsing (basic power off / reboot)
-- Real hardware testing (multiple machines)
-- GRUB fallback bootloader (optional)
+## Phase 7: IPC & Security ✅
+- [x] Message queue per task
+- [x] Slab-based message allocation
+- [x] Zero-copy pointer messages
+- [x] Signed memory blocks (CRC32)
+- [x] Capability-based permissions
+- [x] UID-based access control
+- [x] Permission masks per task
 
-Current focus: Phase 2 – Multitasking (active development)
+## Phase 8: Drivers ✅
+- [x] VGA text mode (80x25)
+- [x] Optimized VGA scroll (64-bit copies)
+- [x] PS/2 keyboard driver
+- [x] Serial port (UART 16550A)
+- [x] Module system (Linux-like interface)
+- [x] Device abstraction layer
+
+## Phase 9: Shell & UX ✅
+- [x] Interactive kernel shell
+- [x] Command parsing
+- [x] Command history
+- [x] Auto-clear on startup
+- [x] Memory/task status commands
+- [x] Reboot/halt commands
+
+---
+
+## Phase 10: User Mode (Planned)
+- [ ] TSS (Task State Segment) setup
+- [ ] Ring 3 code/data segments in GDT
+- [ ] User-space stack switching
+- [ ] IRET to user mode
+- [ ] Syscall from Ring 3
+
+## Phase 11: Filesystem (Planned)
+- [ ] Ramdisk driver
+- [ ] FAT32 or custom FS
+- [ ] VFS (Virtual File System) layer
+- [ ] File descriptors
+- [ ] open/read/write/close syscalls
+
+## Phase 12: ELF Loader (Planned)
+- [ ] ELF64 parser
+- [ ] Program header loading
+- [ ] User process execution
+- [ ] Argument passing (argc/argv)
+
+## Phase 13: Advanced Timing (Planned)
+- [ ] HPET (High Precision Event Timer)
+- [ ] APIC timer
+- [ ] Per-CPU timers
+- [ ] Real-time clock (RTC)
+
+## Phase 14: Networking (Future)
+- [ ] NE2000 or E1000 driver
+- [ ] Ethernet frames
+- [ ] IP/UDP/TCP stack
+- [ ] Sockets API
+
+## Phase 15: Graphics (Future)
+- [ ] VESA/VBE framebuffer
+- [ ] Linear framebuffer mode
+- [ ] Basic 2D primitives
+- [ ] Bitmap fonts
+
+---
+
+## Version History
+
+| Version | Date | Highlights |
+|---------|------|------------|
+| 0.0.1 | 2025-12 | Basic boot, IDT, VGA |
+| 0.0.12 | 2025-12 | Scheduler, syscalls, shell |
+| 0.0.2 | 2025-12 | E820, TSC timer, slab allocator |

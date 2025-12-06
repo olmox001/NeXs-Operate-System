@@ -71,7 +71,7 @@ ASFLAGS="-f elf64"
 LDFLAGS="-n -T kernel.ld -z max-page-size=0x1000 --no-warn-rwx-segments"
 
 # Source Files
-C_SOURCES="kernel.c libc.c buddy.c vga.c serial.c keyboard.c idt.c handlers.c messages.c permissions.c shell.c"
+C_SOURCES="kernel.c libc.c buddy.c vga.c serial.c keyboard.c idt.c handlers.c timer.c messages.c permissions.c shell.c scheduler.c syscall.c module.c sblock.c"
 ASM_SOURCES="kernel_entry.asm interrupts.asm"
 
 echo -e "${CYAN}=== x86_64 Kernel Build System [${BUILD_MODE}] ===${NC}"
@@ -122,7 +122,9 @@ echo ""
 # Link Kernel
 echo -e "${YELLOW}Linking kernel...${NC}"
 # IMPORTANT: kernel_entry.o MUST be linked first to ensure entry point is at the start!
-OBJ_FILES="kernel_entry.o ${C_SOURCES//.c/.o} interrupts.o"
+# Build ASM object list dynamically
+ASM_OBJ_FILES="${ASM_SOURCES//.asm/.o}"
+OBJ_FILES="kernel_entry.o ${C_SOURCES//.c/.o} ${ASM_OBJ_FILES//kernel_entry.o/}"
 $LD $LDFLAGS -o $KERNEL_ELF -Map kernel.map $OBJ_FILES
 echo -e "${GREEN}[✓]${NC} Linking complete"
 echo ""
