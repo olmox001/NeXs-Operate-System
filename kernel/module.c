@@ -6,7 +6,7 @@
  */
 
 #include "module.h"
-#include "libc.h"
+#include "libx.h"
 #include "vga.h"
 
 // =============================================================================

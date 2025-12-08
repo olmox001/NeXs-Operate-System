@@ -7,7 +7,7 @@
 
 #include "process.h"
 #include "buddy.h"
-#include "libc.h"
+#include "libx.h"
 #include "idt.h"
 #include "vga.h"
 #include "handlers.h"

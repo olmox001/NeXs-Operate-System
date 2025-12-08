@@ -6,7 +6,7 @@
  */
 
 #include "messages.h"
-#include "libc.h"
+#include "libx.h"
 #include "buddy.h"
 #include "handlers.h" // For context (scheduler aware?)
 #include "timer.h"    // For timestamps

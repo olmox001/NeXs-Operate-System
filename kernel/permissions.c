@@ -33,7 +33,7 @@
  */
 
 #include "permissions.h"
-#include "libc.h"
+#include "libx.h"
 #include "buddy.h"
 
 // =============================================================================

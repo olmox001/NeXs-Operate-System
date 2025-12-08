@@ -140,7 +140,7 @@ This document provides a comprehensive mapping of all functions and major labels
 
 ## Library and IPC
 
-### `kernel/libc.c`
+### `kernel/libx.c`
 - **memset/memcpy/memmove/memcmp**: Standard memory ops (optimized).
 - **strlen/strcpy/strncpy/strcmp**: Standard string ops.
 - **itoa/atoi**: Integer/String conversion.

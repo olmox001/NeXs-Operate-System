@@ -45,7 +45,7 @@ void syscall_init(void);
 void syscall_handler(struct interrupt_frame* frame);
 
 // =============================================================================
-// User-Space Wrappers (LibC)
+// User-Space Wrappers (Libx)
 // =============================================================================
 // These look like standard POSIX functions but wrap the INT 0x80 instruction.
 

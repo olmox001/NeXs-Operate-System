@@ -51,7 +51,7 @@ LDFLAGS="-n -T kernel.ld -z max-page-size=0x1000 --no-warn-rwx-segments"
 
 # Source Files Listing
 # All new .c files must be added here
-C_SOURCES="kernel.c libc.c buddy.c vga.c serial.c keyboard.c idt.c handlers.c timer.c messages.c permissions.c shell.c scheduler.c syscall.c module.c sblock.c"
+C_SOURCES="kernel.c libx.c buddy.c vga.c serial.c keyboard.c idt.c handlers.c timer.c messages.c permissions.c shell.c scheduler.c syscall.c module.c sblock.c"
 ASM_SOURCES="kernel_entry.asm interrupts.asm"
 
 # ==============================================================================

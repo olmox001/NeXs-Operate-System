@@ -148,7 +148,7 @@ NeXs-OS/
 │   │   ├── messages.c/h    # IPC
 │   │   ├── module.c/h      # Module System
 │   │   ├── shell.c/h       # Interactive Shell
-│   │   └── libc.c/h        # Standard Library (memset, printf, etc.)
+│   │   └── libx.c/h        # Standard Library (memset, printf, etc.)
 │   └── Drivers:
 │       ├── vga.c/h         # Video
 │       ├── keyboard.c/h    # Input

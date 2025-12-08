@@ -8,7 +8,7 @@
 #include "shell.h"
 #include "vga.h"
 #include "keyboard.h"
-#include "libc.h"
+#include "libx.h"
 #include "buddy.h"
 #include "messages.h"
 #include "permissions.h"

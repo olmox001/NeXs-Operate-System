@@ -7,7 +7,7 @@
 
 #include "sblock.h"
 #include "buddy.h"
-#include "libc.h"
+#include "libx.h"
 #include "process.h"
 
 // =============================================================================

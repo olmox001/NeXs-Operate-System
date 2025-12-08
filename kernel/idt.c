@@ -34,7 +34,7 @@
 
 #include "idt.h"
 #include "vga.h"
-#include "libc.h"
+#include "libx.h"
 
 // IDT Table Storage (256 Entries)
 // We declare this static to keep it internal to this file, exposed only via idtp

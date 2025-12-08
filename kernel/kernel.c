@@ -35,7 +35,7 @@
 #include "kernel.h"
 #include "vga.h"
 #include "serial.h"
-#include "libc.h"
+#include "libx.h"
 #include "buddy.h"
 #include "idt.h"
 #include "keyboard.h"

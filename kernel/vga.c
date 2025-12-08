@@ -33,7 +33,7 @@
  */
 
 #include "vga.h"
-#include "libc.h"
+#include "libx.h"
 #include "serial.h" // For Dual Output (VGA + Serial)
 #include "kernel.h"
 
