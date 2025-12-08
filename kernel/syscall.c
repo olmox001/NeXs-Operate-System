@@ -3,6 +3,32 @@
  *
  * BSD 3-Clause License
  * Copyright (c) 2025, NeXs Operate System
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ *    contributors may be used to endorse or promote products derived from
+ *    this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "syscall.h"
@@ -16,33 +42,26 @@
 #include "buddy.h"
 #include "timer.h"
 
-/*
- * Syscall Table
+// =============================================================================
+// Internal Syscall Implementation Functions
+// =============================================================================
+
+/**
+ * SYS_WRITE (1)
+ * Currently only supports writing to stdout (FD 1) via VGA.
  */
-#define SYS_READ        0
-#define SYS_WRITE       1
-#define SYS_GETPID      20
-#define SYS_KILL        62  // Reserved
-#define SYS_EXIT        60
-#define SYS_YIELD       24
-#define SYS_SLEEP       35
-#define SYS_MSGSND      71
-#define SYS_MSGRCV      72
-#define SYS_UPTIME      96
-#define SYS_MEMINFO     97
-#define SYS_TASKINFO    98
-#define SYS_GETTIME_NS  99  // High-precision time (ns)
-#define SYS_GETFREQ     100 // TSC frequency (Hz)
-
-// --- Handlers ---
-
 static int64_t sys_write(int fd, const char* buf, size_t len) {
-    (void)fd; (void)len;
+    (void)fd; (void)len; // Unused for now
     if (!buf) return -1;
     vga_puts(buf);
-    return 0;
+    return 0; // Success (TODO: Return bytes written)
 }
 
+/**
+ * SYS_READ (0)
+ * Reads a single character from the keyboard buffer.
+ * Non-blocking for now. returns 1 if char read, 0 if empty.
+ */
 static int64_t sys_read(int fd, char* buf, size_t len) {
     (void)fd; (void)len;
     if (!buf) return -1;
@@ -51,46 +70,83 @@ static int64_t sys_read(int fd, char* buf, size_t len) {
     return 1;
 }
 
+/**
+ * SYS_GETPID (20)
+ * Returns the Process ID of the current task.
+ */
 static int64_t sys_getpid(void) {
     return current_task ? current_task->pid : 0;
 }
 
+/**
+ * SYS_UPTIME (96)
+ * Returns system uptime in milliseconds.
+ */
 static int64_t sys_uptime(void) {
     return (int64_t)timer_get_ms();
 }
 
+/**
+ * SYS_MEMINFO (97)
+ * populates variables with memory stats.
+ */
 static int64_t sys_meminfo(size_t* total, size_t* used, size_t* free_mem) {
     buddy_stats(total, used, free_mem);
     return 0;
 }
 
+/**
+ * SYS_YIELD (24)
+ * Voluntarily relinquishes the CPU time slice.
+ */
 static int64_t sys_yield(void) {
     yield();
     return 0;
 }
 
+/**
+ * SYS_SLEEP (35)
+ * Blocks the process for the specified milliseconds.
+ */
 static int64_t sys_sleep(uint64_t ms) {
     sleep(ms);
     return 0;
 }
 
+/**
+ * SYS_EXIT (60)
+ * Terminates the current process.
+ */
 static void sys_exit(int code) {
     (void)code;
     exit();
 }
 
+/**
+ * SYS_MSGSND (71)
+ * Sends an IPC message. Permission Checked.
+ */
 static int64_t sys_msgsnd(uint32_t dest, uint32_t type, uint64_t data) {
     if (!current_task) return -1;
+    // Capability Check
     if (!(current_task->perm_mask & PERM_MSG_SEND)) return -1;
     return msg_send(current_task->pid, dest, type, &data, sizeof(data));
 }
 
+/**
+ * SYS_MSGRCV (72)
+ * Check for pending messages. Permission Checked.
+ */
 static int64_t sys_msgrcv(uint32_t task_id) {
     if (!current_task) return -1;
     if (!(current_task->perm_mask & PERM_MSG_RECEIVE)) return -1;
     return msg_available(task_id) ? 1 : 0;
 }
 
+/**
+ * SYS_TASKINFO (98)
+ * Retrieves state and priority of a process.
+ */
 static int64_t sys_taskinfo(uint32_t pid, uint32_t* state, uint8_t* priority) {
     // Find task by PID
     if (!current_task) return -1;
@@ -106,16 +162,30 @@ static int64_t sys_taskinfo(uint32_t pid, uint32_t* state, uint8_t* priority) {
     return -1; // Not found
 }
 
+/**
+ * SYS_GETTIME_NS (99)
+ * High-precision timestamp.
+ */
 static int64_t sys_gettime_ns(void) {
     return (int64_t)timer_get_ns();
 }
 
+/**
+ * SYS_GETFREQ (100)
+ * CPU Timer Frequency.
+ */
 static int64_t sys_getfreq(void) {
     return (int64_t)timer_get_freq();
 }
 
-/*
+/**
  * Main Dispatcher
+ * Called from ISR 128. Uses registers for arguments (System V ABIish).
+ * RAX = Syscall Number
+ * RDI = Arg 1
+ * RSI = Arg 2
+ * RDX = Arg 3
+ * Returns result in RAX.
  */
 void syscall_handler(struct interrupt_frame* frame) {
     if (!frame) return;
@@ -144,16 +214,19 @@ void syscall_handler(struct interrupt_frame* frame) {
         default: ret = -1; break;
     }
     
-    frame->rax = (uint64_t)ret;
+    frame->rax = (uint64_t)ret; // Store return value
 }
 
+// Initialization info
 void syscall_init(void) {
     vga_puts("DEBUG: Syscall Mechanism Initialized (INT 0x80)\n");
 }
 
-/*
- * User-space Wrappers
- */
+// =============================================================================
+// User-Space Wrappers
+// =============================================================================
+// These macros emit the 'int 0x80' instruction inline.
+
 #define SYSCALL0(num) ({ \
     int64_t r; \
     asm volatile("mov %1,%%rax; int $0x80; mov %%rax,%0" \
@@ -180,6 +253,7 @@ void syscall_init(void) {
         : "rax","rdi","rsi","rdx","rcx","r11"); \
     r; })
 
+// Public API Implementations
 ssize_t write(int fd, const void* buf, size_t n) { return SYSCALL3(SYS_WRITE, fd, buf, n); }
 ssize_t read(int fd, void* buf, size_t n) { return SYSCALL3(SYS_READ, fd, buf, n); }
 int getpid(void) { return (int)SYSCALL0(SYS_GETPID); }
@@ -188,7 +262,7 @@ void _exit(int c) { SYSCALL1(SYS_EXIT, c); while(1); }
 uint64_t sys_uptime_wrapper(void) { return SYSCALL0(SYS_UPTIME); }
 void sys_sleep_wrapper(uint64_t ms) { SYSCALL1(SYS_SLEEP, ms); }
 
-// Legacy
+// Legacy Wrappers
 void syscall_write(const char* s) { write(1, s, 0); }
 void syscall_yield(void) { sched_yield(); }
 int syscall_getpid(void) { return getpid(); }

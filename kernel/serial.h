@@ -35,8 +35,29 @@
 #ifndef SERIAL_H
 #define SERIAL_H
 
+// =============================================================================
+// Driver Interface
+// =============================================================================
+
+/**
+ * Initialize Serial Port (COM1)
+ * Configures baud rate, parity, and FIFO.
+ */
 void serial_init(void);
+
+/**
+ * Write a single character to serial port.
+ * Blocking call (waits for transmit buffer empty).
+ * 
+ * @param c Character to send
+ */
 void serial_putc(char c);
+
+/**
+ * Write a string to serial port.
+ * 
+ * @param str Null-terminated string
+ */
 void serial_puts(const char* str);
 
 #endif // SERIAL_H

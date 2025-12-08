@@ -37,10 +37,14 @@
 #include "libc.h"
 
 // IDT Table Storage (256 Entries)
+// We declare this static to keep it internal to this file, exposed only via idtp
 static struct idt_entry idt[256];
 static struct idt_ptr idtp;
 
-// Architecture-specific External Assembly Stubs
+// =============================================================================
+// External Assembly ISR Stubs
+// =============================================================================
+// These are defined in interrupts.asm using macros
 extern void isr0(void);
 extern void isr1(void);
 extern void isr2(void);
@@ -74,6 +78,7 @@ extern void isr29(void);
 extern void isr30(void);
 extern void isr31(void);
 
+// External Assembly IRQ Stubs (Hardware Interrupts)
 extern void irq0(void);
 extern void irq1(void);
 extern void irq2(void);
@@ -93,7 +98,11 @@ extern void irq15(void);
 
 // Software Interrupt: Syscall (INT 0x80)
 extern void isr128(void);
-// x86 CPU Exception Names
+
+// =============================================================================
+// Exception Messages
+// =============================================================================
+// Lookups for standard x86 exceptions
 const char* exception_messages[32] = {
     "Division By Zero",
     "Debug",
@@ -133,43 +142,45 @@ const char* exception_messages[32] = {
  * Remap Programmable Interrupt Controller (PIC)
  * Offsets standard IRQs (0-15) to standard CPU interrupts (32-47)
  * to avoid conflict with CPU Exception vectors (0-31).
+ * 
+ * Without remapping, IRQ0 (Timer) would trigger INT 0 (Divide by Zero) mismatch.
  */
 static void pic_remap(void) {
-    // Save previous masks
+    // Save previous operation masks for Master (0x21) and Slave (0xA1)
     uint8_t a1 = inb(0x21);
     uint8_t a2 = inb(0xA1);
     
     // Start initialization sequence (ICW1)
-    outb(0x20, 0x11);
-    io_wait();
-    outb(0xA0, 0x11);
+    outb(0x20, 0x11);       // Send init command to Master Command Port
+    io_wait();              // Wait for hardware
+    outb(0xA0, 0x11);       // Send init command to Slave Command Port
     io_wait();
     
     // Set vector offsets (ICW2)
-    outb(0x21, 0x20); // Master starts at 32 (0x20)
+    outb(0x21, 0x20);       // Remap Master PIC to vector 32 (0x20)
     io_wait();
-    outb(0xA1, 0x28); // Slave starts at 40 (0x28)
+    outb(0xA1, 0x28);       // Remap Slave PIC to vector 40 (0x28)
     io_wait();
     
     // Set cascading identity (ICW3)
-    outb(0x21, 0x04);
+    outb(0x21, 0x04);       // Tell Master there is a Slave at IRQ2 (0000 0100)
     io_wait();
-    outb(0xA1, 0x02);
+    outb(0xA1, 0x02);       // Tell Slave its cascade identity (0000 0010)
     io_wait();
     
     // Set 8086 mode (ICW4)
-    outb(0x21, 0x01);
+    outb(0x21, 0x01);       // Set 8086/8088 mode for Master
     io_wait();
-    outb(0xA1, 0x01);
+    outb(0xA1, 0x01);       // Set 8086/8088 mode for Slave
     io_wait();
     
-    // Restore masks
+    // Restore saved masks
     outb(0x21, a1);
     outb(0xA1, a2);
 }
 
 /**
- * Load IDT Entry into CPU Register
+ * Load IDT Entry into CPU Register using 'lidt'
  */
 static inline void idt_load(void) {
     asm volatile("lidt (%0)" : : "r"(&idtp));
@@ -177,19 +188,31 @@ static inline void idt_load(void) {
 
 /**
  * Set a Gate in the IDT
+ * Populates the 16-byte structure with handler address and flags.
  */
 void idt_set_gate(uint8_t num, uint64_t handler, uint16_t selector, uint8_t flags) {
+    // Splits the 64-bit handler address into low (16), mid (16), and high (32) parts
     idt[num].offset_low = handler & 0xFFFF;
     idt[num].offset_mid = (handler >> 16) & 0xFFFF;
     idt[num].offset_high = (handler >> 32) & 0xFFFFFFFF;
+    
+    // Set segment and flags
     idt[num].selector = selector;
-    idt[num].ist = 0;
+    idt[num].ist = 0;           // Interrupt Stack Table unused (Legacy stack switch)
     idt[num].type_attr = flags;
-    idt[num].zero = 0;
+    idt[num].zero = 0;          // Must be zero
 }
 
 /**
  * Initialize IDT Subsystem
+ * Logic:
+ * 1. Define IDT pointer bounds
+ * 2. clear IDT table memory
+ * 3. Remap PIC controllers
+ * 4. Install all exception handlers (0-31)
+ * 5. Install all IRQ handlers (32-47)
+ * 6. Install Syscall handler (128)
+ * 7. Load IDT into CPU
  */
 void idt_init(void) {
     idtp.limit = sizeof(idt) - 1;
@@ -200,11 +223,12 @@ void idt_init(void) {
     memset(&idt, 0, sizeof(idt));
     vga_puts("DEBUG: memset done\n");
     
-    // Remap IRQ controllers
+    // Remap IRQ controllers to move Hardware Interrupts out of exception range
     pic_remap();
     vga_puts("DEBUG: pic_remap done\n");
     
     // Install CPU Exception Handlers (0-31)
+    // Flags 0x8E = Present, Ring 0, Interrupt Gate
     idt_set_gate(0, (uint64_t)isr0, 0x08, 0x8E);
     idt_set_gate(1, (uint64_t)isr1, 0x08, 0x8E);
     idt_set_gate(2, (uint64_t)isr2, 0x08, 0x8E);
@@ -239,6 +263,7 @@ void idt_init(void) {
     idt_set_gate(31, (uint64_t)isr31, 0x08, 0x8E);
     
     // Install IRQ Handlers (32-47)
+    // Flags 0x8E = Present, Ring 0, Interrupt Gate
     idt_set_gate(32, (uint64_t)irq0, 0x08, 0x8E);
     idt_set_gate(33, (uint64_t)irq1, 0x08, 0x8E);
     idt_set_gate(34, (uint64_t)irq2, 0x08, 0x8E);
@@ -257,23 +282,27 @@ void idt_init(void) {
     idt_set_gate(47, (uint64_t)irq15, 0x08, 0x8E);
     
     // Install Syscall Handler (INT 0x80 = 128)
-    idt_set_gate(128, (uint64_t)isr128, 0x08, 0xEE); // 0xEE = Ring 3 callable trap gate
+    // Flags 0xEE = Present, Ring 3 (User), Interrupt Gate
+    idt_set_gate(128, (uint64_t)isr128, 0x08, 0xEE);
     
     vga_puts("DEBUG: setup gates done\n");
 
-    // Load table pointer
+    // Load table pointer into CPU
     idt_load();
     vga_puts("DEBUG: idt_load done\n");
 }
 
 /**
  * CPU Exception Dispatcher
- * This function is called from the assembly stub when an exception occurs.
+ * This function is called from the assembly stub (ints.asm) when an exception occurs.
+ * 
+ * @param frame Pointer to the stack frame containing CPU state
  */
 void isr_exception_handler(struct interrupt_frame* frame) {
     // Disable interrupts to prevent nested crashes
     cli();
     
+    // Set colors to White on Red to indicate critical failure
     vga_set_color(VGA_WHITE, VGA_RED);
     vga_puts("\n\n*** KERNEL EXCEPTION ***\n");
     
@@ -289,19 +318,22 @@ void isr_exception_handler(struct interrupt_frame* frame) {
     vga_puts("\nError Code: ");
     vga_putx(frame->err_code);
     
-    // Dump CR2 (Fault Address) if Page Fault
-    uint64_t cr2;
-    asm volatile("mov %%cr2, %0" : "=r"(cr2));
-    vga_puts("  CR2: ");
-    vga_putx(cr2);
+    // Dump CR2 (Fault Address) if Page Fault (Int 14)
+    if (frame->int_no == 14) {
+        uint64_t cr2;
+        asm volatile("mov %%cr2, %0" : "=r"(cr2));
+        vga_puts("  CR2: ");
+        vga_putx(cr2);
+    }
     
-    // Dump CPU State
+    // Dump CPU Stack State
     vga_puts("\nRIP: "); vga_putx(frame->rip);
     vga_puts("  CS: "); vga_putx(frame->cs);
     vga_puts("  RFLAGS: "); vga_putx(frame->rflags);
     vga_puts("\nRSP: "); vga_putx(frame->rsp);
     vga_puts("  SS: "); vga_putx(frame->ss);
     
+    // Dump General Purpuse Registers
     vga_puts("\n\nRegisters:");
     vga_puts("\nRAX: "); vga_putx(frame->rax);
     vga_puts("  RBX: "); vga_putx(frame->rbx);

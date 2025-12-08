@@ -126,4 +126,5 @@
 |---------|------|------------|
 | 0.0.1 | 2025-12 | Basic boot, IDT, VGA |
 | 0.0.12 | 2025-12 | Scheduler, syscalls, shell |
-| 0.0.2 | 2025-12 | E820, TSC timer, slab allocator |
+| 0.0.2 | 2025-12 | E820, TSC, Slab, IPC, Shell, Modules, Drivers |
+| 0.0.3 |         |                                              |

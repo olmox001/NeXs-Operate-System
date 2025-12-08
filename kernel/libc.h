@@ -1,35 +1,12 @@
 /*
- * libc.h - Minimal C Standard Library Header
+ * libc.h - Minimal Standard C Library
  *
  * BSD 3-Clause License
- *
  * Copyright (c) 2025, NeXs Operate System
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * 3. Neither the name of the copyright holder nor the names of its
- *    contributors may be used to endorse or promote products derived from
- *    this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * This subset of the C standard library provides essential memory and string
+ * manipulation functions required by the kernel and drivers.
+ * Optimized for x86_64 where possible (e.g., 64-bit word copies).
  */
 
 #ifndef LIBC_H
@@ -37,24 +14,111 @@
 
 #include "kernel.h"
 
-// Memory Operations
+// =============================================================================
+// Memory Manipulation
+// =============================================================================
+
+/**
+ * Fill memory with a constant byte.
+ * 
+ * @param ptr Pointer to memory block
+ * @param value Byte value to set
+ * @param num Number of bytes to set
+ * @return Original pointer 'ptr'
+ */
 void* memset(void* ptr, int value, size_t num);
+
+/**
+ * Copy memory block (non-overlapping).
+ * 
+ * @param dest Destination pointer
+ * @param src Source pointer
+ * @param num Number of bytes to copy
+ * @return Destination pointer
+ */
 void* memcpy(void* dest, const void* src, size_t num);
+
+/**
+ * Copy memory block (safe for overlapping).
+ * 
+ * @param dest Destination pointer
+ * @param src Source pointer
+ * @param num Number of bytes to copy
+ * @return Destination pointer
+ */
 void* memmove(void* dest, const void* src, size_t num);
-int   memcmp(const void* ptr1, const void* ptr2, size_t num);
 
-// String Operations
+/**
+ * Compare two memory blocks.
+ * 
+ * @param ptr1 First block
+ * @param ptr2 Second block
+ * @param num Number of bytes to compare
+ * @return 0 if equal, <0 if ptr1 < ptr2, >0 if ptr1 > ptr2
+ */
+int memcmp(const void* ptr1, const void* ptr2, size_t num);
+
+// =============================================================================
+// String Manipulation
+// =============================================================================
+
+/**
+ * Get string length.
+ */
 size_t strlen(const char* str);
-char*  strcpy(char* dest, const char* src);
-char*  strncpy(char* dest, const char* src, size_t n);
-int    strcmp(const char* str1, const char* str2);
-int    strncmp(const char* str1, const char* str2, size_t n);
-char*  strcat(char* dest, const char* src);
-char*  strchr(const char* str, int c);
 
-// Conversion
+/**
+ * Copy string (including null terminator).
+ */
+char* strcpy(char* dest, const char* src);
+
+/**
+ * Copy at most n characters of string.
+ * Pads with null bytes if src is shorter than n.
+ */
+char* strncpy(char* dest, const char* src, size_t n);
+
+/**
+ * Compare two strings.
+ */
+int strcmp(const char* str1, const char* str2);
+
+/**
+ * Compare at most n characters of two strings.
+ */
+int strncmp(const char* str1, const char* str2, size_t n);
+
+/**
+ * Concatenate src to end of dest.
+ */
+char* strcat(char* dest, const char* src);
+
+/**
+ * Locate first occurrence of character in string.
+ */
+char* strchr(const char* str, int c);
+
+// =============================================================================
+// Integer Conversion
+// =============================================================================
+
+/**
+ * Integer to ASCII.
+ * 
+ * @param value Integer to convert
+ * @param str Buffer to store result (ensure adequate size!)
+ * @param base Base (2-36)
+ */
 void itoa(int value, char* str, int base);
+
+/**
+ * Unsigned Integer to ASCII.
+ */
 void uitoa(uint32_t value, char* str, int base);
-int  atoi(const char* str);
+
+/**
+ * ASCII to Integer.
+ */
+int atoi(const char* str);
 
 #endif // LIBC_H

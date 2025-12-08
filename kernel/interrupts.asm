@@ -32,13 +32,13 @@
 ; OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ; ==============================================================================
 
-[BITS 64]
+[BITS 64]                   ; Specify 64-bit Long Mode
 
-section .text
+section .text               ; Code section
 
 ; External C High-Level Handlers
-extern isr_exception_handler
-extern irq_common_handler
+extern isr_exception_handler ; Defined in handlers.c
+extern irq_common_handler    ; Defined in handlers.c
 
 ; ==============================================================================
 ; Macros for ISR Generation
@@ -47,32 +47,32 @@ extern irq_common_handler
 ; Macro for Exception ISRs WITHOUT error code
 ; Pushes a dummy error code (0) to maintain stack alignment uniformity.
 %macro ISR_NOERR 1
-    global isr%1
+    global isr%1            ; Export symbol
     isr%1:
-        cli
-        push qword 0        ; Dummy error code
-        push qword %1       ; Interrupt number
-        jmp isr_common_stub
+        cli                 ; Disable interrupts
+        push qword 0        ; Push dummy error code
+        push qword %1       ; Push Interrupt number
+        jmp isr_common_stub ; Jump to common handler
 %endmacro
 
 ; Macro for Exception ISRs WITH error code
 ; The CPU pushes the error code automatically.
 %macro ISR_ERR 1
-    global isr%1
+    global isr%1            ; Export symbol
     isr%1:
-        cli
-        push qword %1       ; Interrupt number
-        jmp isr_common_stub
+        cli                 ; Disable interrupts
+        push qword %1       ; Push Interrupt number
+        jmp isr_common_stub ; Jump to common handler
 %endmacro
 
 ; Macro for Hardware IRQ Handlers
 %macro IRQ 2
-    global irq%1
+    global irq%1            ; Export symbol
     irq%1:
-        cli
-        push qword 0        ; Dummy error code
-        push qword %2       ; IRQ number
-        jmp irq_common_stub
+        cli                 ; Disable interrupts
+        push qword 0        ; Push dummy error code
+        push qword %2       ; Push IRQ number (mapped vector)
+        jmp irq_common_stub ; Jump to common handler
 %endmacro
 
 ; ==============================================================================
@@ -135,13 +135,13 @@ IRQ 15, 47      ; Secondary ATA
 ; Software Interrupt: Syscall (INT 0x80 = 128)
 ; ==============================================================================
 global isr128
-extern syscall_handler
+extern syscall_handler      ; Defined in syscall.c
 isr128:
-    cli
-    push qword 0        ; Dummy error code
-    push qword 128      ; Interrupt number
+    cli                     ; Disable interrupts
+    push qword 0            ; Dummy error code
+    push qword 128          ; Interrupt number
     
-    ; Save all registers (same as ISR/IRQ stubs)
+    ; Save all registers (same as ISR/IRQ stubs for consistency)
     push rax
     push rbx
     push rcx
@@ -177,7 +177,7 @@ isr128:
     
     ; Call C handler
     ; syscall_handler(rax=syscall_num, rdi=arg1, rsi=arg2, rdx=arg3)
-    ; Registers are already set by caller, pass stack pointer
+    ; Registers are already set by caller, pass stack pointer in RDI as 4th arg
     mov rdi, rsp
     call syscall_handler
     
@@ -209,9 +209,9 @@ isr128:
     pop rax
     
     ; Clean up stack
-    add rsp, 16
+    add rsp, 16             ; Skip dummy error code and int number
     
-    iretq
+    iretq                   ; Return from Interrupt
 
 ; ==============================================================================
 ; Common ISR Stub
@@ -253,12 +253,12 @@ isr_common_stub:
     mov gs, ax
     
     ; Pass Stack Pointer as Argument (RDI)
-    mov rdi, rsp
+    mov rdi, rsp            ; Pointer to registers_t struct
     
     ; Call C Handler
     call isr_exception_handler
     
-    jmp restore_context
+    jmp restore_context     ; Output point
 
 ; ==============================================================================
 ; Common IRQ Stub
@@ -300,18 +300,18 @@ irq_common_stub:
     mov gs, ax
     
     ; Pass Stack Pointer as Argument (RDI)
-    mov rdi, rsp
+    mov rdi, rsp            ; Pointer to registers_t struct
     
     ; Call C Handler
     call irq_common_handler
-
+    
     ; [NEW] Context Switch Hook
     ; uint64_t scheduler_switch(uint64_t current_rsp);
     ; Returns the new RSP (which might be the same as current_rsp)
     extern scheduler_switch
-    mov rdi, rsp       ; Arg1: Current Stack Pointer
-    call scheduler_switch
-    mov rsp, rax       ; Update Stack Pointer (Switch Task)
+    mov rdi, rsp            ; Arg1: Current Stack Pointer
+    call scheduler_switch   ; Call Scheduler
+    mov rsp, rax            ; Update Stack Pointer (Switch Task if changed)
     
 restore_context:
     ; Restore Segment Registers
@@ -342,9 +342,9 @@ restore_context:
     pop rax
     
     ; Clean up Stack (Remove Error Code and Int Number)
-    add rsp, 16
+    add rsp, 16             ; Skip error code (8) and int no (8)
     
     ; Return from Interrupt
-    iretq
+    iretq                   ; Restore CS:RIP and RFLAGS, switch stack if needed
     
 section .note.GNU-stack noalloc noexec nowrite progbits

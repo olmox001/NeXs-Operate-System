@@ -42,197 +42,197 @@
 ;   - Activate Long Mode and transfer control to Kernel.
 ; ==============================================================================
 
-[BITS 16]
-[ORG 0x7E00]
+[BITS 16]                   ; Start in 16-bit Real Mode
+[ORG 0x7E00]                ; Loaded at 0x7E00 logic address
 
 ; ------------------------------------------------------------------------------
-; Configuration Configuration
+; Configuration Constants
 ; ------------------------------------------------------------------------------
-KERNEL_START_SECTOR     equ 64
-KERNEL_MAX_SECTORS      equ 256         ; Support up to 128KB kernel
-KERNEL_SECTORS_PER_READ equ 64          ; Read 64 sectors (32KB) per operation
-KERNEL_TEMP_ADDR        equ 0x10000     ; Temporary load address (64KB)
-KERNEL_TEMP_SEGMENT     equ 0x1000      ; Segment for temp address (KERNEL_TEMP_ADDR >> 4)
-KERNEL_FINAL_ADDR       equ 0x100000    ; Final destination address (1MB)
+KERNEL_START_SECTOR     equ 64          ; Sector index where kernel begins (after MBR & Stage2)
+KERNEL_MAX_SECTORS      equ 256         ; Maximum sectors to load (Support up to 128KB kernel)
+KERNEL_SECTORS_PER_READ equ 64          ; Number of sectors to read per BIOS call (32KB chunk)
+KERNEL_TEMP_ADDR        equ 0x10000     ; Temporary buffer address for kernel load (64KB)
+KERNEL_TEMP_SEGMENT     equ 0x1000      ; Segment corresponding to KERNEL_TEMP_ADDR (0x10000 >> 4)
+KERNEL_FINAL_ADDR       equ 0x100000    ; Final physical address where kernel will run (1MB)
 
-; Page table addresses (16KB total for 2MB identity mapping)
-PML4_ADDR               equ 0x1000
-PDPT_ADDR               equ 0x2000
-PDT_ADDR                equ 0x3000
+; Page table addresses (16KB total reserved for tables)
+PML4_ADDR               equ 0x1000      ; Page Map Level 4 Table address
+PDPT_ADDR               equ 0x2000      ; Page Directory Pointer Table address
+PDT_ADDR                equ 0x3000      ; Page Directory Table address
 
 ; EFER MSR (Extended Feature Enable Register)
-IA32_EFER               equ 0xC0000080
-EFER_LME                equ 0x00000100  ; Long Mode Enable bit
+IA32_EFER               equ 0xC0000080  ; MSR index for EFER
+EFER_LME                equ 0x00000100  ; Long Mode Enable bit mask
 
-section .text
-global _start
+section .text               ; Code section
+global _start               ; Entry point symbol
 
 _start:
-    dw 0xAA55                           ; Signature for Stage1 validation
+    dw 0xAA55                           ; Magic Signature for Stage1 validation check
     
-    cli                                 ; Disable interrupts
-    mov [boot_drive], dl                ; Save boot drive number
+    cli                                 ; Disable interrupts immediately
+    mov [boot_drive], dl                ; Save boot drive number passed from Stage1
     
-    mov si, msg_s2_start
-    call print
+    mov si, msg_s2_start                ; Load start message
+    call print                          ; Print message to console
     
     ; ========================================================================
     ; PHASE 1: Enable A20 Line
     ; ========================================================================
-    ; Required to access memory above 1MB
-    call enable_a20
-    call test_a20
-    jz error_a20                        ; Fail if A20 is not enabled
+    ; Required to access memory above 1MB (20th address bit)
+    call enable_a20                     ; Attempt to enable A20
+    call test_a20                       ; Verify A20 is enabled
+    jz error_a20                        ; Jump if Zero Flag set (A20 disabled)
     
-    mov si, msg_a20
-    call print
+    mov si, msg_a20                     ; Load A20 success message
+    call print                          ; Print message
     
     ; ========================================================================
     ; PHASE 1.5: Detect Memory Map (E820)
     ; ========================================================================
-    call detect_e820
+    call detect_e820                    ; Call E820 memory detection routine
     
     ; ========================================================================
     ; PHASE 2: Load Kernel
     ; ========================================================================
     ; Loads the Flat Binary kernel from disk to a temporary buffer
-    mov si, msg_loading_kernel
-    call print
+    mov si, msg_loading_kernel          ; Load loading message
+    call print                          ; Print message
     
-    call load_kernel
-    jc error_kernel_disk                ; Fail if disk read error
+    call load_kernel                    ; function to read kernel sectors from disk
+    jc error_kernel_disk                ; Jump if Carry Flag set (Disk error)
     
-    mov si, msg_kernel
-    call print
+    mov si, msg_kernel                  ; Load kernel success message part
+    call print                          ; Print message
     
     ; ========================================================================
     ; PHASE 3: Validation (Skipped for Flat Binary)
     ; ========================================================================
-    ; We skip ELF validation as we are now using a raw binary format
+    ; Note: We skip ELF header validation as we are now using a raw binary format
     
-    mov si, msg_elf
-    call print
+    mov si, msg_elf                     ; Load binary check success message
+    call print                          ; Print message
     
     ; ========================================================================
     ; PHASE 4: Setup Page Tables
     ; ========================================================================
-    ; Identity map the first 16MB using 2MB huge pages
-    call setup_paging
+    ; Identity map the first 16MB using 2MB huge pages to allow kernel execution
+    call setup_paging                   ; Initialize paging structures
     
-    mov si, msg_paging
-    call print
+    mov si, msg_paging                  ; Load paging success message
+    call print                          ; Print message
     
     ; ========================================================================
     ; PHASE 5: Setup GDT for Long Mode
     ; ========================================================================
-    lgdt [gdt64_descriptor]
+    lgdt [gdt64_descriptor]             ; Load Global Descriptor Table Register (GDTR)
     
     ; ========================================================================
     ; PHASE 6: Enter Long Mode
     ; ========================================================================
     
     ; 1. Enable PAE (Physical Address Extension) in CR4
-    mov eax, cr4
-    or eax, 1 << 5                      ; Set PAE bit
-    mov cr4, eax
+    mov eax, cr4                        ; Read Control Register 4
+    or eax, 1 << 5                      ; Set PAE bit (bit 5)
+    mov cr4, eax                        ; Write back to CR4
     
     ; 2. Load PML4 Base Address into CR3
-    mov eax, PML4_ADDR
-    mov cr3, eax
+    mov eax, PML4_ADDR                  ; Load PML4 address
+    mov cr3, eax                        ; Write to Control Register 3 (Page Directory Base)
     
     ; 3. Enable Long Mode via EFER MSR
-    mov ecx, IA32_EFER
-    rdmsr
-    or eax, EFER_LME                    ; Set LME bit
-    wrmsr
+    mov ecx, IA32_EFER                  ; Set ECX to EFER MSR index
+    rdmsr                               ; Read Model Specific Register
+    or eax, EFER_LME                    ; Set Long Mode Enable (LME) bit
+    wrmsr                               ; Write Model Specific Register
     
     ; 4. Enable Paging in CR0 (Activates Long Mode)
-    mov eax, cr0
-    or eax, 0x80000001                  ; Set PG (bit 31) and PE (bit 0)
-    mov cr0, eax
+    mov eax, cr0                        ; Read Control Register 0
+    or eax, 0x80000001                  ; Set Paging (PG, bit 31) and Protection Enable (PE, bit 0)
+    mov cr0, eax                        ; Write back to CR0
     
     ; 5. Far Jump to flush pipeline and enter 64-bit code segment
-    jmp 0x08:long_mode_entry
+    jmp 0x08:long_mode_entry            ; Jump to Code Segment (0x08) at 64-bit entry point
 
 ; ==============================================================================
 ; REAL MODE UTILITY FUNCTIONS
 ; ==============================================================================
 
 enable_a20:
-    ; Method 1: BIOS
-    mov ax, 0x2401
-    int 0x15
-    jnc .done
+    ; Method 1: BIOS Int 0x15 Function 0x2401
+    mov ax, 0x2401                      ; Function: Enable A20 Gate
+    int 0x15                            ; Call BIOS System Services
+    jnc .done                           ; If Carry Clear, success
     
-    ; Method 2: Keyboard Controller
-    call .wait_in
-    mov al, 0xAD
-    out 0x64, al
-    call .wait_in
-    mov al, 0xD0
-    out 0x64, al
-    call .wait_out
-    in al, 0x60
-    push ax
-    call .wait_in
-    mov al, 0xD1
-    out 0x64, al
-    call .wait_in
-    pop ax
-    or al, 2
-    out 0x60, al
-    call .wait_in
-    mov al, 0xAE
-    out 0x64, al
-    call .wait_in
+    ; Method 2: Keyboard Controller (8042)
+    call .wait_in                       ; Wait for input buffer empty
+    mov al, 0xAD                        ; Command: Disable Keyboard
+    out 0x64, al                        ; Send to Command Port
+    call .wait_in                       ; Wait
+    mov al, 0xD0                        ; Command: Read Output Port
+    out 0x64, al                        ; Send
+    call .wait_out                      ; Wait for output data
+    in al, 0x60                         ; Read Output Port
+    push ax                             ; Save status
+    call .wait_in                       ; Wait
+    mov al, 0xD1                        ; Command: Write Output Port
+    out 0x64, al                        ; Send
+    call .wait_in                       ; Wait
+    pop ax                              ; Restore status
+    or al, 2                            ; Set A20 bit (bit 1)
+    out 0x60, al                        ; Write to Data Port
+    call .wait_in                       ; Wait
+    mov al, 0xAE                        ; Command: Enable Keyboard
+    out 0x64, al                        ; Send
+    call .wait_in                       ; Wait
     
-    ; Method 3: Fast A20
-    in al, 0x92
-    or al, 2
-    out 0x92, al
+    ; Method 3: Fast A20 (System Control Port A)
+    in al, 0x92                         ; Read System Control Port A
+    or al, 2                            ; Set Fast A20 bit
+    out 0x92, al                        ; Write back
     
 .done:
-    ret
+    ret                                 ; Return from function
 
 .wait_in:
-    in al, 0x64
-    test al, 2
-    jnz .wait_in
+    in al, 0x64                         ; Read Status Register
+    test al, 2                          ; Check Input Buffer Full bit
+    jnz .wait_in                        ; Loop until clear
     ret
 
 .wait_out:
-    in al, 0x64
-    test al, 1
-    jz .wait_out
+    in al, 0x64                         ; Read Status Register
+    test al, 1                          ; Check Output Buffer Full bit
+    jz .wait_out                        ; Loop until set
     ret
 
 test_a20:
-    push es
-    push ds
-    xor ax, ax
-    mov es, ax
-    mov di, 0x7DFE
-    mov ax, 0xFFFF
-    mov ds, ax
-    mov si, 0x7E0E
-    mov al, [es:di]
-    mov ah, [ds:si]
-    cmp al, ah
-    jne .enabled
-    mov byte [es:di], 0x00
-    mov byte [ds:si], 0xFF
-    mov al, [es:di]
-    cmp al, 0xFF
-    je .disabled
+    push es                             ; Save ES
+    push ds                             ; Save DS
+    xor ax, ax                          ; Zero AX
+    mov es, ax                          ; ES = 0
+    mov di, 0x7DFE                      ; DI = 0x7DFE (Magic number location in MBR)
+    mov ax, 0xFFFF                      ; AX = 0xFFFF
+    mov ds, ax                          ; DS = 0xFFFF
+    mov si, 0x7E0E                      ; SI = 0x7E0E (0xFFFF:0x7E0E -> 0x107DFE)
+    mov al, [es:di]                     ; Read byte at 0x0000:0x7DFE
+    mov ah, [ds:si]                     ; Read byte at 0xFFFF:0x7E0E (Should be alias if A20 disabled)
+    cmp al, ah                          ; Compare bytes
+    jne .enabled                        ; If different, A20 is definitely enabled
+    mov byte [es:di], 0x00              ; Try to modify memory at low address
+    mov byte [ds:si], 0xFF              ; Modify memory at high address
+    mov al, [es:di]                     ; Read back low address
+    cmp al, 0xFF                        ; Did high write affect low read?
+    je .disabled                        ; If yes, memory wraps -> A20 disabled
 .enabled:
-    or ax, 1
-    jmp .done
+    or ax, 1                            ; Set ZF=0 (Success)
+    jmp .done                           ; Jump to cleanup
 .disabled:
-    xor ax, ax
+    xor ax, ax                          ; Set ZF=1 (Failure)
 .done:
-    pop ds
-    pop es
-    ret
+    pop ds                              ; Restore DS
+    pop es                              ; Restore ES
+    ret                                 ; Return
 
 ; ==============================================================================
 ; E820 Memory Map Detection
@@ -240,7 +240,7 @@ test_a20:
 ; Stores entries in e820_map, count in boot_info
 ; ==============================================================================
 detect_e820:
-    push es
+    push es                             ; Save registers
     push di
     push ebx
     push ecx
@@ -250,341 +250,352 @@ detect_e820:
     mov di, e820_map                    ; ES:DI = destination buffer
     xor ax, ax
     mov es, ax                          ; ES = 0 (Real mode addressing)
-    add di, 0x7E00                      ; Adjust for ORG offset
-    sub di, 0x7E00                      ; Actually just use absolute
-    mov word [boot_info + 8], 0         ; Clear e820_count
-    xor bp, bp                          ; Entry counter
+    add di, 0x7E00                      ; Adjust for ORG offset manually (if needed) - wait, ORG is handled by assembler for labels, but for ES:DI we need physical
+    sub di, 0x7E00                      ; Actually, standard [ORG] handles displacements. Let's rely on label.
+                                        ; Note: assembler calculates 'e820_map' as 0x7E00 + offset.
+                                        ; ES is 0. So DI should simply be 'e820_map'.
+    mov word [boot_info + 8], 0         ; Clear e820_count in boot_info
+    xor bp, bp                          ; Entry counter = 0
     
 .loop:
-    mov eax, 0xE820                     ; Function code
-    mov ecx, 24                         ; Entry size (24 bytes)
+    mov eax, 0xE820                     ; Function code E820
+    mov ecx, 24                         ; Entry size request (24 bytes for ACPI 3.0)
     mov edx, 0x534D4150                 ; 'SMAP' signature
-    int 0x15
+    int 0x15                            ; Call BIOS
     
-    jc .done                            ; CF set = error or done
-    cmp eax, 0x534D4150                 ; Must return 'SMAP'
-    jne .done
+    jc .done                            ; CF set = error or list done
+    cmp eax, 0x534D4150                 ; Verify return signature 'SMAP'
+    jne .done                           ; If invalid, exit
     
     ; Valid entry received
-    inc bp                              ; Increment counter
-    add di, 24                          ; Move to next entry slot
+    inc bp                              ; Increment entry counter
+    add di, 24                          ; Move DI to next entry slot
     
-    cmp bp, 32                          ; Max 32 entries
-    jge .done
+    cmp bp, 32                          ; Check against max entries (32)
+    jge .done                           ; If full, stop
     
-    test ebx, ebx                       ; EBX=0 means last entry
-    jnz .loop
+    test ebx, ebx                       ; Check continuation value (EBX)
+    jnz .loop                           ; If not zero, there are more entries -> loop
     
 .done:
     ; Store entry count
-    mov word [boot_info + 8], bp
+    mov word [boot_info + 8], bp        ; Write count to boot_info structure
     
     ; Calculate total usable memory (simplified: sum type=1 entries)
-    xor eax, eax                        ; Total in bytes (low 32 bits)
-    mov cx, bp                          ; Entry count
-    mov di, e820_map
+    xor eax, eax                        ; Total bytes accumulator (low 32 bits)
+    mov cx, bp                          ; Load entry count
+    mov di, e820_map                    ; Reset pointer to start of map
     
 .sum_loop:
-    test cx, cx
-    jz .sum_done
+    test cx, cx                         ; Check if count is zero
+    jz .sum_done                        ; If zero, done summing
     
-    cmp dword [di + 16], 1              ; Type == 1 (usable)?
-    jne .skip_entry
+    cmp dword [di + 16], 1              ; Check Type field (offset 16). Type 1 = Usable RAM
+    jne .skip_entry                     ; If not usable, skip
     
-    ; Add length (simplified, assumes < 4GB)
-    add eax, [di + 8]                   ; Add length low dword
+    ; Add length (simplified, assumes < 4GB for the total summary)
+    add eax, [di + 8]                   ; Add Low 32-bits of Length
     
 .skip_entry:
-    add di, 24
-    dec cx
-    jmp .sum_loop
+    add di, 24                          ; Move to next entry
+    dec cx                              ; Decrement count
+    jmp .sum_loop                       ; Repeat
     
 .sum_done:
     ; Convert to MB and store
-    shr eax, 20                         ; Divide by 1MB
-    mov [boot_info + 12], eax           ; Store total_memory_mb
+    shr eax, 20                         ; Divide by 1MB (2^20) - Shift Right 20 bits
+    mov [boot_info + 12], eax           ; Store total_memory_mb in boot_info
     
-    pop edx
+    pop edx                             ; Restore registers
     pop ecx
     pop ebx
     pop di
     pop es
-    ret
+    ret                                 ; Return
 
 load_kernel:
-    push ax
+    push ax                             ; Save registers
     push bx
     push cx
     push dx
     push si
     
-    xor bx, bx                          ; BX = chunk index
-    mov cx, KERNEL_MAX_SECTORS          ; CX = remaining sectors
+    xor bx, bx                          ; BX = chunk index (0)
+    mov cx, KERNEL_MAX_SECTORS          ; CX = remaining sectors to read
     
 .load_chunk:
-    ; Determine sectors to read in this pass
-    mov ax, cx
-    cmp ax, KERNEL_SECTORS_PER_READ
-    jbe .last_chunk
-    mov ax, KERNEL_SECTORS_PER_READ
+    ; Determine sectors to read in this pass (Max KERNEL_SECTORS_PER_READ)
+    mov ax, cx                          ; Copy remaining count
+    cmp ax, KERNEL_SECTORS_PER_READ     ; Compare with max per chunk
+    jbe .last_chunk                     ; If less or equal, use remaining
+    mov ax, KERNEL_SECTORS_PER_READ     ; Cap at max
 .last_chunk:
     
     ; Setup Disk Address Packet (DAP)
-    mov byte [dap], 0x10
-    mov byte [dap+1], 0
-    mov word [dap+2], ax                ; Sectors count
-    mov word [dap+4], 0                 ; Offset (always 0)
+    mov byte [dap], 0x10                ; Packet Size
+    mov byte [dap+1], 0                 ; Reserved
+    mov word [dap+2], ax                ; Sectors to read
+    mov word [dap+4], 0                 ; Offset (always 0, using Segment for address)
     
     ; Calculate Segment: KERNEL_TEMP_SEGMENT + (chunk * 0x800)
-    push ax
-    mov ax, bx
-    shl ax, 11                          ; chunk * 2048 paragraphs
-    add ax, KERNEL_TEMP_SEGMENT
-    mov word [dap+6], ax                ; Segment
-    pop ax
+    ; 0x800 paragraphs = 32KB
+    push ax                             ; Save sector count
+    mov ax, bx                          ; Get chunk index
+    shl ax, 11                          ; Multiply by 2048 (paragraphs in 32KB)
+    add ax, KERNEL_TEMP_SEGMENT         ; Add base segment
+    mov word [dap+6], ax                ; Store Segment in DAP
+    pop ax                              ; Restore sector count
     
     ; Calculate LBA start sector
-    push ax
-    push dx
-    mov ax, bx
-    mov dx, KERNEL_SECTORS_PER_READ
+    push ax                             ; Save sector count
+    push dx                             ; Save DX
+    mov ax, bx                          ; Chunk index
+    mov dx, KERNEL_SECTORS_PER_READ     ; Size of chunk
     mul dx                              ; DX:AX = chunk * 64
-    add ax, KERNEL_START_SECTOR
-    adc dx, 0
-    mov word [dap+8], ax
-    mov word [dap+10], dx
-    mov dword [dap+12], 0
-    pop dx
-    pop ax
+    add ax, KERNEL_START_SECTOR         ; Add global start offset
+    adc dx, 0                           ; Add carry to high word
+    mov word [dap+8], ax                ; Store LBA Low
+    mov word [dap+10], dx               ; Store LBA High
+    mov dword [dap+12], 0               ; Store LBA Higher (0)
+    pop dx                              ; Restore DX
+    pop ax                              ; Restore sector count
     
-    ; Save loop counters
+    ; Save loop counters before INT call
     push bx
     push cx
     push ax
     
     ; Execute Read
-    mov ah, 0x42
-    mov dl, [boot_drive]
-    mov si, dap
-    int 0x13
+    mov ah, 0x42                        ; Extended Read Function
+    mov dl, [boot_drive]                ; Drive number
+    mov si, dap                         ; Pointer to DAP
+    int 0x13                            ; Call BIOS
     
     ; Restore counters
-    pop ax
-    pop cx
-    pop bx
+    pop ax                              ; Popped sector count read
+    pop cx                              ; Popped remaining count
+    pop bx                              ; Popped chunk index
     
-    jc .error
+    jc .error                           ; If CF set, error happened
     
     ; Update counters
-    sub cx, ax                          ; Decrement remaining sectors
-    inc bx                              ; Next chunk index
+    sub cx, ax                          ; Decrement remaining sectors by amount read
+    inc bx                              ; Increment chunk index
     
     ; Continue if needed
-    test cx, cx
-    jnz .load_chunk
+    test cx, cx                         ; Check if remaining sectors > 0
+    jnz .load_chunk                     ; Loop
     
     ; Success
-    clc
-    jmp .done
+    clc                                 ; Clear Carry Flag
+    jmp .done                           ; Exit
     
 .error:
-    ; Print Error Code
-    push ax
-    mov si, msg_disk_err
-    call print
-    pop ax
-    mov al, ah
-    call print_hex
-    mov si, msg_newline
-    call print
-    stc
+    ; Print Error Code if needed
+    push ax                             ; Save error code
+    mov si, msg_disk_err                ; Load error message
+    call print                          ; Print message
+    pop ax                              ; Restore error code
+    mov al, ah                          ; Error code is in AH
+    call print_hex                      ; Print hex value
+    mov si, msg_newline                 ; Newline
+    call print                          ; Print
+    stc                                 ; Set Carry Flag (Failure)
     
 .done:
-    pop si
+    pop si                              ; Restore registers
     pop dx
     pop cx
     pop bx
     pop ax
-    ret
+    ret                                 ; Return
 
 setup_paging:
-    ; Zero out all page tables first
-    xor eax, eax
-    mov edi, PML4_ADDR
-    mov ecx, 4096 * 3 / 4
-    rep stosd
+    ; Zero out all page tables first to prevent garbage data
+    xor eax, eax                        ; Clear EAX
+    mov edi, PML4_ADDR                  ; Destination: PML4 base
+    mov ecx, 4096 * 3 / 4               ; Size: 3 tables (PML4, PDPT, PDT) in dwords
+    rep stosd                           ; Store EAX (0) repeatedly
     
     ; PML4[0] points to PDPT
-    mov dword [PML4_ADDR], PDPT_ADDR | 3  ; Present + Writable
+    mov dword [PML4_ADDR], PDPT_ADDR | 3  ; Set address combined with flags (Present + Writable)
     
     ; PDPT[0] points to PDT
-    mov dword [PDPT_ADDR], PDT_ADDR | 3   ; Present + Writable
+    mov dword [PDPT_ADDR], PDT_ADDR | 3   ; Set address combined with flags (Present + Writable)
     
     ; PDT entries: Identity Map first 16MB using Huge Pages (2MB)
-    mov edi, PDT_ADDR
-    mov eax, 0x00000083     ; Present + Writable + Huge (2MB)
-    mov ecx, 8              ; Map 8 entries (16MB total)
+    ; This maps virtual 0-16MB to physical 0-16MB
+    mov edi, PDT_ADDR                   ; Destination: PDT base
+    mov eax, 0x00000083                 ; Base Addr 0 + Present + Writable + Huge (2MB) bit
+    mov ecx, 8                          ; Map 8 entries (8 * 2MB = 16MB total)
 
 .map_pd_loop:
-    mov [edi], eax          ; Low 32-bits
-    mov [edi + 4], dword 0  ; High 32-bits
+    mov [edi], eax                      ; Store Page Directory Entry (Low 32-bits)
+    mov [edi + 4], dword 0              ; Store High 32-bits (0)
     
-    add eax, 0x200000       ; Increment Physical Address by 2MB
-    add edi, 8              ; Next Entry
-    dec ecx
-    jnz .map_pd_loop
+    add eax, 0x200000                   ; Increment Physical Address by 2MB (0x200000)
+    add edi, 8                          ; Move to next Page Table Entry (8 bytes)
+    dec ecx                             ; Decrement loop counter
+    jnz .map_pd_loop                    ; Repeat until 8 entries done
     
-    ret
+    ret                                 ; Return
 
 print:
-    push ax
+    push ax                             ; Save registers
     push bx
-    mov ah, 0x0E
-    mov bh, 0
-.l: lodsb
-    test al, al
-    jz .d
-    int 0x10
-    jmp .l
-.d: pop bx
+    mov ah, 0x0E                        ; Teletype function
+    mov bh, 0                           ; Page 0
+.l: lodsb                               ; Load byte
+    test al, al                         ; Check null
+    jz .d                               ; Done if zero
+    int 0x10                            ; Print
+    jmp .l                              ; Loop
+.d: pop bx                              ; Restore registers
     pop ax
-    ret
+    ret                                 ; Return
 
 print_hex:
-    push ax
+    push ax                             ; Save registers
     push cx
-    mov cl, al
-    shr al, 4
-    call .nibble
-    mov al, cl
-    and al, 0x0F
-    call .nibble
-    pop cx
+    mov cl, al                          ; Save value
+    shr al, 4                           ; Get high nibble
+    call .nibble                        ; Print high nibble
+    mov al, cl                          ; Restore value
+    and al, 0x0F                        ; Get low nibble
+    call .nibble                        ; Print low nibble
+    pop cx                              ; Restore
     pop ax
-    ret
+    ret                                 ; Return
 .nibble:
-    add al, '0'
-    cmp al, '9'
-    jle .out
-    add al, 7
+    add al, '0'                         ; ASCII offset
+    cmp al, '9'                         ; Check if digit
+    jle .out                            ; If digit, done
+    add al, 7                           ; If letter, add offset (A-F)
 .out:
-    mov ah, 0x0E
+    mov ah, 0x0E                        ; Print char
     int 0x10
     ret
 
 error_a20:
-    mov si, err_a20
-    jmp error
+    mov si, err_a20                     ; Load message
+    jmp error                           ; Jump common error
 error_kernel_disk:
-    mov si, err_kern_disk
-    jmp error
+    mov si, err_kern_disk               ; Load message
+    jmp error                           ; Jump common error
 error_elf:
-    mov si, err_elf
-    jmp error
+    mov si, err_elf                     ; Load message
+    jmp error                           ; Jump common error
 error:
-    call print
-    cli
-    hlt
-    jmp $
+    call print                          ; Print specific error msg
+    cli                                 ; Disable ints
+    hlt                                 ; Halt
+    jmp $                               ; Infinite loop
 
 ; ==============================================================================
 ; LONG MODE CODE (64-bit)
 ; ==============================================================================
-[BITS 64]
+[BITS 64]                               ; Switch assembler to 64-bit mode
 long_mode_entry:
-    ; Setup Data Segments
-    mov ax, 0x10
+    ; Setup Data Segments with the new Data Selector (0x10)
+    mov ax, 0x10                        ; Data Segment Selector
     mov ds, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
     mov ss, ax
     
-    ; Setup Stack (2MB)
+    ; Setup Stack (2MB) - Sets stack pointer to grow down from 2MB mark
     mov rsp, 0x200000
     
     ; Setup IDT (Exceptions 0-31)
-    call setup_idt
+    call setup_idt                      ; Initialize Interrupt Descriptor Table
     
     ; Relocate Kernel to Final Address
-    ; Source: 0x10000, Dest: 0x100000, Size: 128KB
-    mov rsi, KERNEL_TEMP_ADDR
-    mov rdi, KERNEL_FINAL_ADDR
-    mov rcx, (KERNEL_MAX_SECTORS * 512) / 8  ; Copy in qwords (8 bytes)
-    rep movsq
+    ; Source: 0x10000 (KERNEL_TEMP_ADDR), Dest: 0x100000 (KERNEL_FINAL_ADDR)
+    ; Size: 128KB (KERNEL_MAX_SECTORS * 512)
+    mov rsi, KERNEL_TEMP_ADDR           ; Source
+    mov rdi, KERNEL_FINAL_ADDR          ; Destination
+    mov rcx, (KERNEL_MAX_SECTORS * 512) / 8  ; Count in qwords (8 bytes)
+    rep movsq                           ; Copy memory
     
     ; Clear screen (Blue background, White text)
-    ; Note: This uses RDI and increments it
-    push rax
-    mov rdi, 0xB8000
-    mov rcx, 80 * 25
-    mov ax, 0x1F20              ; Blue bg (1), White fg (F), Space (20)
-    rep stosw
-    pop rax
+    ; Note: This uses RDI and increments it, so we must reset RDI later
+    push rax                            ; Save RAX
+    mov rdi, 0xB8000                    ; Video Memory Address
+    mov rcx, 80 * 25                    ; Screen size (chars)
+    mov ax, 0x1F20                      ; Attribute: Blue(1)BG+White(F)FG, Char: Space(20)
+    rep stosw                           ; Store words
+    pop rax                             ; Restore RAX
     
-    ; Pass Boot Info Struct pointer in RDI
+    ; Pass Boot Info Struct pointer in RDI (System V AMD64 ABI 1st Argument)
     ; CRITICAL: Must be done AFTER screen clear, as stosw modifies RDI
     mov rdi, boot_info
     
     ; Re-verify Stack (Redundant but safe)
     mov rsp, 0x200000
-    mov rbp, rsp
-
+    mov rbp, rsp                        ; Setup Base Pointer
+    
     ; Jump to Kernel Entry Point (Flat Binary at 0x100000)
-    mov rax, KERNEL_FINAL_ADDR
-    call rax
+    mov rax, KERNEL_FINAL_ADDR          ; Load address
+    call rax                            ; Absolute Call to kernel
     
     ; Should never return
-    jmp $
+    jmp $                               ; Loop if kernel returns
 
 setup_idt:
     ; Initialize IDT for the first 32 exceptions
-    mov rdi, idt_start
-    mov rcx, 32
-    mov rbx, isr_table
+    mov rdi, idt_start                  ; IDT storage base
+    mov rcx, 32                         ; Number of entries
+    mov rbx, isr_table                  ; Table of ISR stub addresses
     
 .loop:
     ; Load ISR address from table
     mov rax, [rbx]
     
     ; Build 16-byte Gate Descriptor in [RDI]
-    ; 0-15: Offset Low
-    mov word [rdi], ax
-    ; 16-31: Segment Selector (0x08 = Kernel Code)
-    mov word [rdi+2], 0x08
+    ; Structure:
+    ; Offset Low (16), Selector (16), IST/Types(16), Offset Mid(16), Offset High(32), Reserved(32)
+    
+    mov word [rdi], ax                  ; 0-15: Offset Low
+    mov word [rdi+2], 0x08              ; 16-31: Segment Selector (0x08 = Kernel Code)
+    
     ; 32-47: Flags (P=1, DPL=00, Type=0xE Interrupt Gate, IST=0) -> 0x8E00
+    ; NOTE: User noted incorrect 32-bit IDT. 64-bit IDT is 16 bytes.
+    ; This implementation seems correct for 64-bit:
+    ; [Offset Low 16] [Selector 16] [IST 8] [Type/Attr 8] [Offset Mid 16] [Offset High 32] [Reserved 32]
+    ; 0x8E00 maps to: P=1, DPL=0, Type=1110 (Int Gate). Correct.
     mov word [rdi+4], 0x8E00
-    ; 48-63: Offset Mid
-    shr rax, 16
-    mov word [rdi+6], ax
-    ; 64-95: Offset High
-    shr rax, 16
-    mov dword [rdi+8], eax
-    ; 96-127: Reserved
-    mov dword [rdi+12], 0
+    
+    shr rax, 16                         ; Shift down for middle bits
+    mov word [rdi+6], ax                ; 48-63: Offset Mid
+    
+    shr rax, 16                         ; Shift down for high bits
+    mov dword [rdi+8], eax              ; 64-95: Offset High
+    
+    mov dword [rdi+12], 0               ; 96-127: Reserved (must be 0)
     
     ; Next entry
-    add rdi, 16
-    add rbx, 8
-    dec rcx
-    jnz .loop
+    add rdi, 16                         ; Advance IDT pointer 16 bytes
+    add rbx, 8                          ; Advance ISR table 8 bytes (pointer size)
+    dec rcx                             ; Decrement counter
+    jnz .loop                           ; Loop
     
-    lidt [idt_descriptor64]
-    ret
+    lidt [idt_descriptor64]             ; Load IDT Register
+    ret                                 ; Return
 
 ; Macro for generating ISR Stubs
 %macro ISR_NOERR 1
     isr_%1:
-        push 0                  ; Dummy error code
-        push %1                 ; Interrupt number
-        jmp exception_common
+        push 0                  ; Push dummy error code for consistency
+        push %1                 ; Push Interrupt number
+        jmp exception_common    ; Jump to common handler
 %endmacro
 
 %macro ISR_ERR 1
     isr_%1:
         ; Error code already pushed by CPU
-        push %1                 ; Interrupt number
-        jmp exception_common
+        push %1                 ; Push Interrupt number
+        jmp exception_common    ; Jump to common handler
 %endmacro
 
 ; Define first 32 Exception Handlers
@@ -625,10 +636,10 @@ exception_common:
     ; Stack layout: [Ret IP], [CS], [RFLAGS], [RSP], [SS], [ERR_CODE], [INT_NUM]
     
     ; Simple VGA Exception Reporter: "EXC xx ERR yy"
-    mov rdi, 0xB8000
-    mov rax, 0x4F204F204F204F20 ; Clear first line (Red background)
-    mov [rdi], rax
-    mov [rdi+8], rax
+    mov rdi, 0xB8000                    ; Video Memory
+    mov rax, 0x4F204F204F204F20         ; Clear first line (Red background, White text)
+    mov [rdi], rax                      ; Clear
+    mov [rdi+8], rax                    ; Clear
     
     ; Print "EXC "
     mov byte [rdi], 'E'
@@ -639,65 +650,66 @@ exception_common:
     mov byte [rdi+5], 0x4F
     
     ; Print Interrupt Number (hex)
-    mov rax, [rsp]      ; Int num
-    mov rbx, 0xB8008
-    call print_hex_byte
+    mov rax, [rsp]                      ; Get Interrupt Num from stack
+    mov rbx, 0xB8008                    ; Screen Offset
+    call print_hex_byte                 ; Print Byte
     
     ; Print " ERR "
-    mov rbx, 0xB800E
-    mov word [rbx], 0x4F45 ; E
-    mov word [rbx+2], 0x4F52 ; R
-    mov word [rbx+4], 0x4F52 ; R
+    mov rbx, 0xB800E                    ; Screen Offset
+    mov word [rbx], 0x4F45              ; E
+    mov word [rbx+2], 0x4F52            ; R
+    mov word [rbx+4], 0x4F52            ; R
     
     ; Print Error Code (hex)
-    mov rax, [rsp+8]    ; Err code
-    mov rbx, 0xB8016
-    call print_hex_byte ; Show low byte only for compactness
+    mov rax, [rsp+8]                    ; Get Error Code from stack
+    mov rbx, 0xB8016                    ; Screen Offset
+    call print_hex_byte                 ; Print Byte
     
-    cli
-    hlt
+    cli                                 ; Disable Interrupts
+    hlt                                 ; Halt CPU
+    jmp $                               ; Loop
 
 ; Utility to print a byte in AH to video memory at [RBX]
 print_hex_byte:
-    push rax
-    shr al, 4
-    call .nib
-    mov [rbx], ax
-    pop rax
-    and al, 0xF
-    call .nib
-    mov [rbx+2], ax
-    ret
+    push rax                            ; Save RAX
+    shr al, 4                           ; High nibble
+    call .nib                           ; Print
+    mov [rbx], ax                       ; Store to video memory
+    pop rax                             ; Restore RAX
+    and al, 0xF                         ; Low nibble
+    call .nib                           ; Print
+    mov [rbx+2], ax                     ; Store to video memory
+    ret                                 ; Return
 .nib:
     cmp al, 9
     jbe .num
     add al, 7
 .num:
     add al, '0'
-    mov ah, 0x4F
+    mov ah, 0x4F                        ; Red Background Attribute
     ret
 
 align 8
 isr_table:
     %assign i 0
     %rep 32
-        dq isr_%+i
+        dq isr_%+i                      ; Generate pointers to ISR stubs
         %assign i i+1
     %endrep
 
 align 16
 idt_descriptor64:
-    dw 32*16 - 1
-    dq idt_start
+    dw 32*16 - 1                        ; Limit (Size - 1)
+    dq idt_start                        ; Base Address
 
 align 16
 idt_start:
-    times 32*16 db 0
+    times 32*16 db 0                    ; Reserve space for IDT entries
 
 ; ==============================================================================
 ; DATA SECTION
 ; ==============================================================================
-[BITS 16]
+[BITS 16]                               ; Data valid in Real Mode
 
 boot_drive:     db 0
 dap:            times 16 db 0
@@ -707,10 +719,12 @@ align 16
 gdt64_start:
     dq 0                                ; Null descriptor
     
-    ; Code Segment (0x08): 64-bit, Present, Ring 0
+    ; Code Segment (0x08): 64-bit, Present, Ring 0, Exec/Read
+    ; Access: 10011010b (0x9A), Flags: 0010b (Long Mode)
     dq 0x00209A0000000000
     
-    ; Data Segment (0x10): Present, Ring 0
+    ; Data Segment (0x10): Present, Ring 0, Read/Write
+    ; Access: 10010010b (0x92)
     dq 0x0000920000000000
 
 gdt64_end:
@@ -749,4 +763,4 @@ err_kern_disk:  db 'DISK READ FAIL', 0x0D, 0x0A, 0
 err_elf:        db 'ELF64 FAIL', 0x0D, 0x0A, 0
 
 ; Padding
-times (32 * 512)-($-$$) db 0
+times (32 * 512)-($-$$) db 0            ; Pad to 16KB

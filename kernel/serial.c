@@ -35,39 +35,62 @@
 #include "serial.h"
 #include "kernel.h"
 
-#define PORT 0x3f8   // COM1 Base Address
+// Standard COM1 Base IO Address
+#define PORT 0x3f8
+
+// =============================================================================
+// Internal Configuration
+// =============================================================================
 
 /**
- * Initialize Serial Port
+ * Initialize Hardware
+ * Configures UART for 38400 baud, 8N1 (8 bits, No parity, 1 stop bit).
  */
-static int init_serial() {
-   outb(PORT + 1, 0x00);    // Disable all interrupts
-   outb(PORT + 3, 0x80);    // Enable DLAB (set baud rate divisor)
-   outb(PORT + 0, 0x03);    // Set divisor to 3 (lo byte) 38400 baud
-   outb(PORT + 1, 0x00);    //                  (hi byte)
-   outb(PORT + 3, 0x03);    // 8 bits, no parity, one stop bit
-   outb(PORT + 2, 0xC7);    // Enable FIFO, clear them, with 14-byte threshold
-   outb(PORT + 4, 0x0B);    // IRQs enabled, RTS/DSR set
-   return 0;
+static int init_serial(void) {
+    outb(PORT + 1, 0x00);    // Disable all UART interrupts (Polling mode for output)
+    outb(PORT + 3, 0x80);    // Enable DLAB (Divisor Latch Access Bit)
+                             // This allows accessing the baud rate divisor registers
+    
+    // Set Baud Rate to 38400 (Max is 115200)
+    // Divisor = 115200 / 38400 = 3
+    outb(PORT + 0, 0x03);    // Set divisor low byte
+    outb(PORT + 1, 0x00);    // Set divisor high byte
+    
+    outb(PORT + 3, 0x03);    // 8 bits, no parity, one stop bit (Line Protocol)
+    outb(PORT + 2, 0xC7);    // Enable FIFO, clear them, with 14-byte threshold
+                             // (0xC7 = 11000111)
+    
+    outb(PORT + 4, 0x0B);    // Enable IRQs, RTS/DSR set
+                             // (0x0B = 00001011)
+    return 0;
 }
 
 /**
- * Check if the transmit buffer is empty
+ * Check Transmit Status
+ * Reads Line Status Register (Port + 5). Bit 5 is 'Empty Transmitter Holding Register'.
  */
-static int is_transmit_empty() {
-   return inb(PORT + 5) & 0x20;
+static int is_transmit_empty(void) {
+    return inb(PORT + 5) & 0x20;
 }
 
+// =============================================================================
+// Public API
+// =============================================================================
+
 /**
- * Write a single character to serial port (Blocking)
+ * Write a single character
+ * Blocking loop until hardware buffer has space.
  */
 void serial_putc(char a) {
-   while (is_transmit_empty() == 0);
-   outb(PORT, a);
+    while (is_transmit_empty() == 0) {
+        // Spin
+        asm volatile("pause");
+    }
+    outb(PORT, a);
 }
 
 /**
- * Write a string to serial port
+ * Write a string
  */
 void serial_puts(const char* str) {
     while (*str) {
@@ -76,9 +99,9 @@ void serial_puts(const char* str) {
 }
 
 /**
- * Initialize Driver
+ * Initialize Driver Interface
  */
-void serial_init() {
+void serial_init(void) {
     init_serial();
     serial_puts("\n[SERIAL] Serial Port Initialized\n");
 }

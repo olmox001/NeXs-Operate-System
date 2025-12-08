@@ -36,9 +36,12 @@
 #include "libc.h"
 #include "buddy.h"
 
-// Global Permission Table (Static Allocation for Reliability)
+// =============================================================================
+// Global Permission Table
+// =============================================================================
+// Static Allocation for Reliability (Avoids malloc dependencies in sec layer)
 static struct task_perms task_perms_table[MAX_TASKS];
-static uint64_t perm_timestamp = 0;
+static uint64_t perm_timestamp = 0; // Audit counter
 
 // Human-Readable Permission Names (Debug)
 static const char* perm_names[] = {
@@ -65,6 +68,7 @@ static const char* perm_names[] = {
  * Sets up Kernel (Task 0) with full privileges.
  */
 void perm_init(void) {
+    // Zero all entries
     for (int i = 0; i < MAX_TASKS; i++) {
         task_perms_table[i].task_id = i;
         task_perms_table[i].capabilities = PERM_NONE;
@@ -74,7 +78,7 @@ void perm_init(void) {
     }
     
     // Grant Omnipotent Permissions to Kernel Task (ID 0)
-    task_perms_table[0].capabilities = 0xFFFF;
+    task_perms_table[0].capabilities = 0xFFFF; // All bits set
     task_perms_table[0].parent_id = 0;
     task_perms_table[0].granted_time = 0;
     task_perms_table[0].active = true;
@@ -84,6 +88,7 @@ void perm_init(void) {
 
 /**
  * Register a new Task with limited permissions
+ * Called by task_create
  */
 int perm_create_task(uint32_t task_id, uint32_t parent_id, uint16_t initial_perms) {
     if (task_id >= MAX_TASKS || parent_id >= MAX_TASKS) {
@@ -98,7 +103,7 @@ int perm_create_task(uint32_t task_id, uint32_t parent_id, uint16_t initial_perm
     
     // Slot Availability Check
     if (task_perms_table[task_id].active) {
-        return -1; // Collision
+        return -1; // Collision / Already exists
     }
     
     perm_timestamp++;
@@ -110,7 +115,7 @@ int perm_create_task(uint32_t task_id, uint32_t parent_id, uint16_t initial_perm
     task_perms_table[task_id].granted_time = perm_timestamp;
     task_perms_table[task_id].active = true;
     
-    // Inheritance Logic
+    // Inheritance Logic: Apply constraints derived from parent
     perm_inherit(task_id, parent_id);
     
     return 0;
@@ -118,12 +123,14 @@ int perm_create_task(uint32_t task_id, uint32_t parent_id, uint16_t initial_perm
 
 /**
  * Deregister Task
+ * Called by exit()
  */
 void perm_destroy_task(uint32_t task_id) {
     if (task_id >= MAX_TASKS || task_id == 0) {
-        return; // Protection Violation (Cannot kill Kernel)
+        return; // Protection Violation (Cannot kill Kernel slot 0)
     }
     
+    // Deactivate entry
     task_perms_table[task_id].active = false;
     task_perms_table[task_id].capabilities = PERM_NONE;
 }
@@ -136,7 +143,7 @@ int perm_grant(uint32_t granter_id, uint32_t target_id, uint16_t perms) {
         return -1;
     }
     
-    // Security Check: Does granter have authority?
+    // Security Check: Does granter have authority to grant permissions?
     if (!perm_check(granter_id, PERM_PERM_GRANT)) {
         return -1; // Access Denied
     }
@@ -146,7 +153,7 @@ int perm_grant(uint32_t granter_id, uint32_t target_id, uint16_t perms) {
         return -1;
     }
     
-    // Apply Flags
+    // Apply Flags (Bitwise OR)
     task_perms_table[target_id].capabilities |= perms;
     task_perms_table[target_id].granted_time = ++perm_timestamp;
     
@@ -175,7 +182,7 @@ int perm_revoke(uint32_t revoker_id, uint32_t target_id, uint16_t perms) {
         return -1;
     }
     
-    // Remove Flags (Bitwise Clear)
+    // Remove Flags (Bitwise AND with Inverse)
     task_perms_table[target_id].capabilities &= ~perms;
     task_perms_table[target_id].granted_time = ++perm_timestamp;
     
@@ -195,6 +202,7 @@ bool perm_check(uint32_t task_id, uint16_t perm) {
     }
     
     // Root / Kernel Mode Bypass
+    // If process has PERM_KERNEL_MODE, it can do anything.
     if (task_perms_table[task_id].capabilities & PERM_KERNEL_MODE) {
         return true;
     }
@@ -204,7 +212,7 @@ bool perm_check(uint32_t task_id, uint16_t perm) {
 }
 
 /**
- * Retrieve Capability Mask
+ * Retrieve Capability Mask for inspection
  */
 uint16_t perm_get(uint32_t task_id) {
     if (task_id >= MAX_TASKS) {
@@ -235,9 +243,11 @@ void perm_inherit(uint32_t child_id, uint32_t parent_id) {
     // Child inherits most permissions from parent, BUT...
     // Critical administrative permissions are NOT inherited automatically.
     uint16_t inheritable = task_perms_table[parent_id].capabilities;
+    
+    // Filter out Admin rights
     inheritable &= ~(PERM_PERM_GRANT | PERM_PERM_REVOKE | PERM_KERNEL_MODE);
     
-    // Merge with existing permissions
+    // Merge with existing permissions (e.g. initial_perms passed to create)
     task_perms_table[child_id].capabilities |= inheritable;
 }
 

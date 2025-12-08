@@ -2,70 +2,66 @@
  * kernel.ld - x86_64 Kernel Linker Script
  *
  * BSD 3-Clause License
- *
  * Copyright (c) 2025, NeXs Operate System
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * 3. Neither the name of the copyright holder nor the names of its
- *    contributors may be used to endorse or promote products derived from
- *    this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * Defines the memory layout of the kernel binary.
+ * Ensures the kernel is loaded at 1MB (0x100000) and sections are aligned.
  */
 
+/* Entry Point Symbol */
 ENTRY(kernel_main)
+
+/* Output Architecture */
 OUTPUT_FORMAT(elf64-x86-64)
 OUTPUT_ARCH(i386:x86-64)
 
 SECTIONS {
-    /* Kernel loads at 1MB (Flat Binary Load Address) */
+    /* 
+     * Load Address: 1MB (0x100000) 
+     * This avoids low memory (BIOS IVT, BDA) and fits within standard RAM.
+     */
     . = 0x100000;
     
     /* Code Section (Read-Execute) */
     .text ALIGN(4K) : {
-        *(.text .text.*)
+        *(.text)
+        *(.text.*)
     } :text
     
-    /* Read-Only Data Section */
+    /* Read-Only Data Section (Read-Only) */
     .rodata ALIGN(4K) : {
-        *(.rodata .rodata.*)
-    }
+        *(.rodata)
+        *(.rodata.*)
+    } :text
     
-    /* Read-Write Data Section */
+    /* Data Section (Read-Write) */
     .data ALIGN(4K) : {
-        *(.data .data.*)
+        *(.data)
+        *(.data.*)
     } :data
     
-    /* BSS Section (Uninitialized Data) */
+    /* BSS Section (Uninitialized Data, Zeroed at load) */
     .bss ALIGN(4K) : {
         *(COMMON)
-        *(.bss .bss.*)
-    }
+        *(.bss)
+        *(.bss.*)
+    } :data
     
-    /* Stack Marker (Symbol definition for C code) */
+    /* Kernel End Symbol (used by memory manager to detect heap start) */
     . = ALIGN(4K);
     _kernel_end = .;
+    
+    /* 
+     * Note: We discard .eh_frame (exception handling frames) 
+     * to reduce binary size unless C++ exceptions are needed.
+     */
+    /DISCARD/ : {
+        *(.eh_frame)
+        *(.comment)
+    }
 }
 
+/* Program Headers (Segments) */
 PHDRS {
     text PT_LOAD FLAGS(5);  /* RX (Read + Execute) */
     data PT_LOAD FLAGS(6);  /* RW (Read + Write) */

@@ -1,5 +1,5 @@
 /*
- * buddy.c - Dynamic Buddy Memory Allocator
+ * buddy.c - Dynamic Buddy Memory Allocator Implementation
  *
  * BSD 3-Clause License
  * Copyright (c) 2025, NeXs Operate System
@@ -9,43 +9,65 @@
 #include "libc.h"
 #include "vga.h"
 
-// Block Metadata Header
+// =============================================================================
+// Internal Structures
+// =============================================================================
+
+// Block Metadata Header (stored immediately before payload)
 struct buddy_block {
-    struct buddy_block* next;
-    uint32_t level;
-    uint32_t is_free;
-    uint64_t magic;
+    struct buddy_block* next;   // Next block in the free list (if free)
+    uint32_t level;             // Block order (0 = MIN_SIZE, 1 = 2*MIN_SIZE...)
+    uint32_t is_free;           // Status flag (1=Free, 0=Allocated)
+    uint64_t magic;             // Corruption Detection (Magic Canary)
 };
 
-#define BLOCK_MAGIC 0xB0DD1C0FFEULL
+#define BLOCK_MAGIC 0xB0DD1C0FFEULL // "Budd1Coffee"
 
-// Free lists by level
+// Free Lists Array
+// free_lists[i] points to the head of the linked list of free blocks at level i
 static struct buddy_block* free_lists[BUDDY_MAX_LEVELS];
 
-// Main heap state
-static void* heap_start;
-static size_t heap_size;
-static size_t bytes_allocated;
+// Global Heap State
+static void* heap_start = NULL;
+static size_t heap_size = 0;
+static size_t bytes_allocated = 0;
 
-// Secure region (hidden from normal alloc)
-static void* secure_start;
-static size_t secure_size;
-static size_t secure_used;
+// Secure Region State (Separate linear allocator)
+static void* secure_start = NULL;
+static size_t secure_size = 0;
+static size_t secure_used = 0;
 
-// Global exports
+// Exported Globals
 uint64_t g_total_memory = 0;
 uint64_t g_heap_base = 0;
 uint64_t g_heap_size = 0;
 uint64_t g_secure_base = 0;
 
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/**
+ * Convert block level to size in bytes.
+ * Level 0 = BUDDY_MIN_SIZE
+ * Level n = BUDDY_MIN_SIZE * 2^n
+ */
 static inline size_t level_to_size(uint32_t level) {
-    return BUDDY_MIN_SIZE << level;
+    return (size_t)BUDDY_MIN_SIZE << level;
 }
 
+/**
+ * Calculate required level for a given size.
+ * Rounds up to the nearest power of two plus the header size.
+ */
 static uint32_t size_to_level(size_t size) {
+    // Add overhead for metadata header
     size += sizeof(struct buddy_block);
+    
     uint32_t level = 0;
     size_t block_size = BUDDY_MIN_SIZE;
+    
+    // Scan upwards until fit found
     while (block_size < size && level < BUDDY_MAX_LEVELS - 1) {
         block_size <<= 1;
         level++;
@@ -53,6 +75,10 @@ static uint32_t size_to_level(size_t size) {
     return level;
 }
 
+/**
+ * Find the "Buddy" of a block.
+ * In a buddy system, a block's buddy is at (Address XOR BlockSize).
+ */
 static void* get_buddy(void* block, uint32_t level) {
     size_t block_size = level_to_size(level);
     uint64_t offset = (uint64_t)block - (uint64_t)heap_start;
@@ -60,53 +86,61 @@ static void* get_buddy(void* block, uint32_t level) {
     return (void*)((uint64_t)heap_start + buddy_offset);
 }
 
+/**
+ * Split a block into two smaller "buddies".
+ * The first half is returned (implied), size is reduced.
+ * The second half is added to the lower-level free list.
+ */
 static void split_block(struct buddy_block* block, uint32_t level) {
-    if (level == 0) return;
-    size_t half = level_to_size(level - 1);
+    if (level == 0) return; // Cannot split minimum block
     
-    struct buddy_block* buddy = (struct buddy_block*)((uint64_t)block + half);
+    size_t half_size = level_to_size(level - 1);
+    
+    // Create the Buddy (Second Half)
+    struct buddy_block* buddy = (struct buddy_block*)((uint64_t)block + half_size);
     buddy->level = level - 1;
     buddy->is_free = 1;
     buddy->magic = BLOCK_MAGIC;
     
+    // Update Original (First Half)
     block->level = level - 1;
     
+    // Insert Buddy into Free List
     buddy->next = free_lists[level - 1];
     free_lists[level - 1] = buddy;
-    block->next = free_lists[level - 1];
-    free_lists[level - 1] = block;
+    
+    // Note: The original block 'block' is NOT inserted into the free list loop here,
+    // because it is typically being prepared for allocation or further splitting.
+    // The recursive logic in buddy_alloc handles this.
 }
 
-// Initialize using E820 memory map
+// =============================================================================
+// Public Implementation
+// =============================================================================
+
+/**
+ * Initialize with E820 Map
+ */
 void buddy_init_e820(struct e820_entry* entries, int count, uint64_t* out_secure_base) {
     vga_puts("DEBUG: buddy_init_e820\n");
     
-    // Find largest usable region above 1MB
+    // Search for the largest contiguous USABLE memory region
     uint64_t best_base = 0;
     uint64_t best_size = 0;
     
     for (int i = 0; i < count; i++) {
         if (entries[i].type == E820_TYPE_USABLE) {
-            // Skip regions below 1MB
             uint64_t base = entries[i].base;
             uint64_t len = entries[i].length;
             
-            if (base < 0x100000) {
-                if (base + len > 0x100000) {
-                    len = (base + len) - 0x100000;
-                    base = 0x100000;
-                } else {
-                    continue;
-                }
-            }
-            
-            // Skip kernel area (1MB to ~2MB)
+            // Safety Filter: Skip low memory & Kernel Code Area (< 2MB)
             if (base < 0x200000) {
                 if (base + len > 0x200000) {
-                    len = (base + len) - 0x200000;
+                    // Truncate start
+                    len -= (0x200000 - base);
                     base = 0x200000;
                 } else {
-                    continue;
+                    continue; // Entirely inside safe zone
                 }
             }
             
@@ -117,17 +151,20 @@ void buddy_init_e820(struct e820_entry* entries, int count, uint64_t* out_secure
         }
     }
     
-    if (best_size < 0x80000) { // Minimum 512KB
-        vga_puts("WARN: E820 failed, using default\n");
+    // Fallback if no map (or massive failure)
+    if (best_size < 0x80000) { // < 512KB
+        vga_puts("WARN: E820 Map unusable. Using fallback 1MB heap at 2MB.\n");
         best_base = 0x200000;
-        best_size = 0x100000; // 1MB fallback
+        best_size = 0x100000; // 1MB
     }
     
-    // Reserve top 64KB for secure storage
+    // Carve out Secure Region from the END of the heap
     if (best_size > SECURE_REGION_SIZE * 2) {
         secure_size = SECURE_REGION_SIZE;
         secure_start = (void*)(best_base + best_size - secure_size);
         secure_used = 0;
+        
+        // Shrink main heap
         best_size -= secure_size;
         
         if (out_secure_base) {
@@ -136,122 +173,166 @@ void buddy_init_e820(struct e820_entry* entries, int count, uint64_t* out_secure
         g_secure_base = (uint64_t)secure_start;
     }
     
-    // Initialize main heap
+    // Initialize Main Heap
     buddy_init((void*)best_base, best_size);
     
+    // Export Stats
     g_heap_base = best_base;
     g_heap_size = best_size;
 }
 
+/**
+ * Core Initialization
+ */
 void buddy_init(void* start, size_t size) {
-    vga_puts("DEBUG: buddy_init start\n");
+    vga_puts("DEBUG: buddy_init core\n");
     heap_start = start;
     heap_size = size;
     bytes_allocated = 0;
     
+    // Clear lists
     for (int i = 0; i < BUDDY_MAX_LEVELS; i++) {
         free_lists[i] = NULL;
     }
     
-    // Find max level that fits
-    uint32_t max_level = 0;
+    // Calculate the largest power-of-two block that fits
+    uint32_t level = 0;
     size_t block_size = BUDDY_MIN_SIZE;
-    while ((block_size << 1) <= size && max_level < BUDDY_MAX_LEVELS - 1) {
+    
+    // Find absolute max level
+    while ((block_size << 1) <= size && level < BUDDY_MAX_LEVELS - 1) {
         block_size <<= 1;
-        max_level++;
+        level++;
     }
     
-    // Create initial block
+    // Create the Initial Block covering the whole heap
     struct buddy_block* initial = (struct buddy_block*)start;
-    initial->level = max_level;
+    initial->level = level;
     initial->is_free = 1;
     initial->magic = BLOCK_MAGIC;
     initial->next = NULL;
     
-    free_lists[max_level] = initial;
+    // Add to free list
+    free_lists[level] = initial;
 }
 
+/**
+ * Allocation Routine
+ */
 void* buddy_alloc(size_t size) {
     if (size == 0) return NULL;
     
-    uint32_t needed = size_to_level(size);
+    uint32_t needed_level = size_to_level(size);
     
-    // Find smallest available block
-    uint32_t level = needed;
+    // Find smallest available free block >= needed_level
+    uint32_t level = needed_level;
     while (level < BUDDY_MAX_LEVELS && !free_lists[level]) {
         level++;
     }
     
+    // OOM Check
     if (level >= BUDDY_MAX_LEVELS) return NULL;
     
-    // Split if necessary
-    while (level > needed) {
-        struct buddy_block* block = free_lists[level];
-        free_lists[level] = block->next;
+    // Split blocks down to needed size
+    struct buddy_block* block = free_lists[level];
+    free_lists[level] = block->next; // Remove from list
+    
+    while (level > needed_level) {
         split_block(block, level);
         level--;
+        // After split, 'block' is the left half, and at 'level-1'
+        // The right half is already in free_lists[level-1].
+        // We continue loop to split 'block' further if needed.
     }
     
-    // Remove from free list
-    struct buddy_block* block = free_lists[needed];
-    if (!block) return NULL;
-    
-    free_lists[needed] = block->next;
+    // Mark allocated
     block->is_free = 0;
-    bytes_allocated += level_to_size(needed);
+    bytes_allocated += level_to_size(needed_level);
     
+    // Return payload pointer (skipping header)
     return (void*)((uint64_t)block + sizeof(struct buddy_block));
 }
 
+/**
+ * Deallocation Routine
+ */
 void buddy_free(void* ptr) {
     if (!ptr) return;
     
+    // Recover Header
     struct buddy_block* block = (struct buddy_block*)((uint64_t)ptr - sizeof(struct buddy_block));
     
+    // Sanity Check
     if (block->magic != BLOCK_MAGIC) {
-        vga_puts("WARN: Invalid free\n");
-        return;
+        vga_puts("CRITICAL: Heap Corruption Detected in free()\n");
+        return; // Security Panic?
     }
     
     block->is_free = 1;
     bytes_allocated -= level_to_size(block->level);
     
-    // Try to coalesce with buddy
-    while (block->level < BUDDY_MAX_LEVELS - 1) {
-        struct buddy_block* buddy = get_buddy(block, block->level);
+    // Coalescing Loop
+    uint32_t level = block->level;
+    while (level < BUDDY_MAX_LEVELS - 1) {
+        struct buddy_block* buddy = get_buddy(block, level);
         
-        if ((uint64_t)buddy < (uint64_t)heap_start ||
+        // Check Bounds
+        if ((uint64_t)buddy < (uint64_t)heap_start || 
             (uint64_t)buddy >= (uint64_t)heap_start + heap_size) {
             break;
         }
         
-        if (!buddy->is_free || buddy->level != block->level) {
-            break;
+        // Can we merge?
+        // Buddy must be Free and same Level
+        if (!buddy->is_free || buddy->level != level) {
+            break; 
         }
         
         // Remove buddy from free list
-        struct buddy_block** pp = &free_lists[block->level];
-        while (*pp && *pp != buddy) {
+        // Linear scan required because it's a singly linked list (optimization: use doubly linked)
+        struct buddy_block** pp = &free_lists[level];
+        bool found = false;
+        while (*pp) {
+            if (*pp == buddy) {
+                *pp = buddy->next; // Unlink
+                found = true;
+                break;
+            }
             pp = &(*pp)->next;
         }
-        if (*pp) *pp = buddy->next;
         
-        // Merge
-        if (buddy < block) block = buddy;
+        if (!found) {
+            // Should not happen if state is consistent
+            break; 
+        }
+        
+        // Merge: Address of merged block is min(block, buddy)
+        if (buddy < block) {
+            block = buddy;
+        }
+        
         block->level++;
+        level++;
     }
     
-    block->next = free_lists[block->level];
-    free_lists[block->level] = block;
+    // Insert final block into free list
+    block->next = free_lists[level];
+    free_lists[level] = block;
 }
 
+/**
+ * Get Heap Stats
+ */
 void buddy_stats(size_t* total, size_t* used, size_t* free) {
     if (total) *total = heap_size;
     if (used) *used = bytes_allocated;
     if (free) *free = heap_size - bytes_allocated;
 }
 
-// Secure Region (simple bump allocator)
+// =============================================================================
+// Secure Region Allocator (Bump Allocator)
+// =============================================================================
+
 void secure_region_init(void* base, size_t size) {
     secure_start = base;
     secure_size = size;
@@ -259,14 +340,20 @@ void secure_region_init(void* base, size_t size) {
 }
 
 void* secure_alloc(size_t size) {
+    // 16-byte alignment
+    size = (size + 15) & ~15;
+    
     if (!secure_start || secure_used + size > secure_size) {
-        return NULL;
+        return NULL; // Secure region full
     }
+    
     void* ptr = (void*)((uint64_t)secure_start + secure_used);
-    secure_used += (size + 15) & ~15; // 16-byte align
+    secure_used += size;
     return ptr;
 }
 
 void secure_free(void* ptr) {
-    (void)ptr; // Bump allocator doesn't support free
+    (void)ptr; 
+    // Bump allocators do not support freeing individual items.
+    // Secure region is cleared only on reset/wipe.
 }

@@ -37,39 +37,57 @@
 #include "serial.h" // For Dual Output (VGA + Serial)
 #include "kernel.h"
 
-// VGA Memory Buffer Address (Standard Text Mode)
+// =============================================================================
+// Internal State
+// =============================================================================
+
+// Memory Mapped I/O Address for VGA Text Buffer (Color Monitor)
 static volatile uint16_t* vga_buffer = (uint16_t*)0xB8000;
 
-// Cursor Position State
+// Cursor State
 static int cursor_x = 0;
 static int cursor_y = 0;
-static uint8_t current_color = 0x0F; // White on Black
+static uint8_t current_color = 0x0F; // Default: White Foreground (F) on Black Background (0)
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
 
 /**
- * Compose a VGA entry from character and color
+ * Compose a VGA memory entry.
+ * Entry = [Color Byte (8 bits)] [Character Byte (8 bits)]
  */
 static inline uint16_t vga_entry(char c, uint8_t color) {
     return (uint16_t)c | ((uint16_t)color << 8);
 }
 
 /**
- * Compose a color byte from foreground and background
+ * Compose a VGA color byte.
+ * Color = [Background (4 bits)] [Foreground (4 bits)]
  */
 static inline uint8_t vga_color(uint8_t fg, uint8_t bg) {
     return fg | (bg << 4);
 }
 
 /**
- * Update the hardware cursor position using VGA IO ports
+ * Update the hardware cursor position.
+ * Uses VGA CRT Controller ports 0x3D4 (Index) and 0x3D5 (Data).
  */
 static void update_cursor(void) {
     uint16_t pos = cursor_y * VGA_WIDTH + cursor_x;
     
+    // Register 0x0F: Cursor Location Low Byte
     outb(0x3D4, 0x0F);
     outb(0x3D5, (uint8_t)(pos & 0xFF));
+    
+    // Register 0x0E: Cursor Location High Byte
     outb(0x3D4, 0x0E);
     outb(0x3D5, (uint8_t)((pos >> 8) & 0xFF));
 }
+
+// =============================================================================
+// Driver Implementation
+// =============================================================================
 
 /**
  * Initialize VGA Driver
@@ -82,9 +100,14 @@ void vga_init(void) {
  * Clear the Screen
  */
 void vga_clear(void) {
+    uint16_t empty = vga_entry(' ', current_color);
+    
+    // Fill entire buffer with space character
     for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++) {
-        vga_buffer[i] = vga_entry(' ', current_color);
+        vga_buffer[i] = empty;
     }
+    
+    // Reset Cursor
     cursor_x = 0;
     cursor_y = 0;
     update_cursor();
@@ -98,35 +121,39 @@ void vga_set_color(uint8_t fg, uint8_t bg) {
 }
 
 /**
- * Scroll the screen up by one line (optimized)
+ * Scroll the screen up by one line.
+ * Moves lines 1-24 to 0-23, and clears line 24.
  */
 void vga_scroll(void) {
-    // Fast copy using word-sized operations
+    // 1. Move Memory Up
     volatile uint16_t* dst = vga_buffer;
     volatile uint16_t* src = vga_buffer + VGA_WIDTH;
     int count = VGA_WIDTH * (VGA_HEIGHT - 1);
     
-    // Use 64-bit copies for speed (4 characters at a time)
+    // Optimization: Use 64-bit copy (4 characters at once)
     volatile uint64_t* dst64 = (volatile uint64_t*)dst;
     volatile uint64_t* src64 = (volatile uint64_t*)src;
     int count64 = count / 4;
+    
     for (int i = 0; i < count64; i++) {
         dst64[i] = src64[i];
     }
     
-    // Clear bottom line
-    uint16_t blank = (uint16_t)' ' | ((uint16_t)current_color << 8);
-    dst = vga_buffer + VGA_WIDTH * (VGA_HEIGHT - 1);
+    // 2. Clear Bottom Line
+    uint16_t blank = vga_entry(' ', current_color);
+    dst = vga_buffer + (VGA_WIDTH * (VGA_HEIGHT - 1));
+    
     for (int x = 0; x < VGA_WIDTH; x++) {
         dst[x] = blank;
     }
     
+    // 3. Keep cursor on last line
     cursor_y = VGA_HEIGHT - 1;
 }
 
 /**
- * output a single character to the screen
- * Handles special characters like Newline, Tab, Backspace.
+ * Put Character
+ * Handles special control characters (newline, CR, tab, backspace).
  */
 void vga_putc(char c) {
     if (c == '\n') {
@@ -135,13 +162,15 @@ void vga_putc(char c) {
     } else if (c == '\r') {
         cursor_x = 0;
     } else if (c == '\t') {
-        cursor_x = (cursor_x + 4) & ~3; // Tab align 4
+        cursor_x = (cursor_x + 4) & ~3; // Align to next multiple of 4
     } else if (c == '\b') {
+        // Backspace handling
         if (cursor_x > 0) {
             cursor_x--;
             vga_buffer[cursor_y * VGA_WIDTH + cursor_x] = vga_entry(' ', current_color);
         }
     } else {
+        // Normal printable character
         vga_buffer[cursor_y * VGA_WIDTH + cursor_x] = vga_entry(c, current_color);
         cursor_x++;
     }
@@ -161,15 +190,16 @@ void vga_putc(char c) {
 }
 
 /**
- * Output a String
- * Mirrors output to Serial Port for debugging.
+ * Put String
+ * Also mirrors output to Serial Port for debug purposes.
  */
 void vga_puts(const char* str) {
-    // 1. Mirror to Serial Port (Headless Debug)
+    // 1. Mirror to Serial Port (Headless Debugging / Logs)
     serial_puts(str);
     
-    // 2. VGA Output
-    // Disable interrupts to ensure atomic printing (no race conditions)
+    // 2. Critical Section (Atomic visual update)
+    // Disable interrupts to prevent context switches during printing,
+    // which could scramble output from multiple tasks.
     uint64_t flags;
     asm volatile("pushfq; pop %0; cli" : "=r"(flags));
     
@@ -178,7 +208,7 @@ void vga_puts(const char* str) {
         vga_putc(*s++);
     }
     
-    // Restore Interrupts if they were enabled
+    // Restore Interrupts from saved flags
     if (flags & 0x200) asm volatile("sti");
 }
 
@@ -202,7 +232,7 @@ void vga_putx(uint32_t value) {
 }
 
 /**
- * Move Cursor Absolute
+ * Set Cursor Absolute Position
  */
 void vga_set_cursor(int x, int y) {
     if (x >= 0 && x < VGA_WIDTH && y >= 0 && y < VGA_HEIGHT) {

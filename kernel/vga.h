@@ -37,10 +37,13 @@
 
 #include "kernel.h"
 
+// Standard VGA Text Mode Dimensions
 #define VGA_WIDTH  80
 #define VGA_HEIGHT 25
 
-// Standard VGA Color Palette
+// =============================================================================
+// Standard VGA Color Palette (4-bit CGA)
+// =============================================================================
 enum vga_color {
     VGA_BLACK = 0,
     VGA_BLUE = 1,
@@ -60,22 +63,50 @@ enum vga_color {
     VGA_WHITE = 15,
 };
 
-// Initialize Driver
+// =============================================================================
+// Initialization
+// =============================================================================
+
+// Reset VGA Driver, clear screen, and set default colors
 void vga_init(void);
 
+// =============================================================================
 // Basic Operations
+// =============================================================================
+
+// Clear the screen (fill with spaces)
 void vga_clear(void);
+
+// Set current drawing color (Foreground, Background)
 void vga_set_color(uint8_t fg, uint8_t bg);
 
-// output Functions
+// =============================================================================
+// Output Functions
+// =============================================================================
+
+// Print String
 void vga_puts(const char* str);
+
+// Print Character
 void vga_putc(char c);
+
+// Print Integer (Decimal)
 void vga_puti(int value);
+
+// Print Integer (Hexadecimal)
 void vga_putx(uint32_t value);
 
-// Cursor Control
+// =============================================================================
+// Cursor and Screen Control
+// =============================================================================
+
+// Move hardware cursor to specific coordinate
 void vga_set_cursor(int x, int y);
+
+// Get current cursor position
 void vga_get_cursor(int* x, int* y);
+
+// Scroll the text buffer up by one line
 void vga_scroll(void);
 
 #endif // VGA_H

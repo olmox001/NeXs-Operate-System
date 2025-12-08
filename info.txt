@@ -1,0 +1,9 @@
+NeXs Operate System
+Version: 0.0.2 (Alpha)
+Build Date: 2025-12-08
+Architecture: x86_64
+License: BSD 3-Clause
+
+Description:
+A minimal, educational 64-bit operating system kernel written in Assembly and C.
+Features a custom bootloader, higher-half kernel, precision timing, and modular design.

@@ -37,18 +37,40 @@
 
 #include "kernel.h"
 
+// Ring Buffer Size for Keyboard Input
+// 256 bytes is sufficient for most typing bursts
 #define KBD_BUFFER_SIZE 256
 
-// Initialize Keyboard Subsystem
+// =============================================================================
+// Driver Interface
+// =============================================================================
+
+/**
+ * Initialize Keyboard Subsystem.
+ * Resets state, clears buffer, and unmasks IRQ1.
+ */
 void keyboard_init(void);
 
-// Get character (Blocking)
+/**
+ * Get a character from the keyboard buffer.
+ * Blocking Call: Waits until a key is pressed if buffer is empty.
+ * 
+ * @return ASCII character of the key pressed.
+ */
 char keyboard_getchar(void);
 
-// Poll for available character
+/**
+ * Check if characters are available in the buffer.
+ * Non-blocking check.
+ * 
+ * @return true if buffer is not empty, false otherwise.
+ */
 bool keyboard_available(void);
 
-// Flush buffer
+/**
+ * Clear the keyboard buffer.
+ * Useful when switching contexts or clearing stale input.
+ */
 void keyboard_clear(void);
 
 #endif // KEYBOARD_H
