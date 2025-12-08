@@ -136,7 +136,6 @@ NeXs-OS/
 │   └── build_and_test.sh   # Bootloader build & QEMU launcher
 ├── kernel/
 │   ├── kernel_entry.asm    # entry point (Assembly)
-│   ├── interrupts.asm      # IDT/ISR assembly stubs
 │   ├── kernel.c            # Kernel main and initialization
 │   ├── kernel.ld           # Linker Script (1MB Load Address)
 │   ├── kernel.h            # Globals and Types
@@ -148,7 +147,12 @@ NeXs-OS/
 │   │   ├── messages.c/h    # IPC
 │   │   ├── module.c/h      # Module System
 │   │   ├── shell.c/h       # Interactive Shell
-│   │   └── libx.c/h        # Standard Library (memset, printf, etc.)
+│   │   ├── libx.c/h        # Standard Library (memset, printf, etc.)
+│   │   ├── sblock.c/h      # Signed Memory Blocks
+│   │   ├── permissions.c/h # Capability System
+│   │   ├── idt.c/h         # Interrupt Descriptor Table
+│   │   ├── handlers.c/h    # IRQ Handlers
+│   │   └── interrupts.asm  # ISR Assembly Stubs
 │   └── Drivers:
 │       ├── vga.c/h         # Video
 │       ├── keyboard.c/h    # Input
