@@ -1,0 +1,347 @@
+/*
+ * kernel.c - x86_64 Kernel Main Entry Point
+ *
+ * BSD 3-Clause License
+ *
+ * Copyright (c) 2025, NeXs Operate System
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ *    contributors may be used to endorse or promote products derived from
+ *    this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#include "kernel.h"
+#include "vga.h"
+#include "serial.h"
+#include "libx.h"
+#include "Subsystems/apic.h"
+#include "Subsystems/ioapic.h"
+#include "Subsystems/handlers.h"
+#include "vmm/buddy.h" // Low level access for E820 init? Or exposed via pmm?
+// Better: pmm.h should expose e820 init or wrapper.
+// For now, let's include vmm/buddy.h directly as pmm.c doesn't wrap e820 yet.
+#include "vmm/buddy.h" 
+#include "vmm/pmm.h"
+#include "idt.h"
+#include "keyboard.h"
+#include "messages.h"
+#include "permissions.h"
+#include "shell.h"
+#include "process.h"
+#include "syscall.h"
+#include "vmm.h"
+#include "smp/smp.h"
+
+// External IRQ initialization function (defined in handlers.c)
+void irq_init(void);
+
+// Function: print_banner
+// Description: Prints the OS ASCII start banner to the VGA console
+static void print_banner(void) {
+    vga_set_color(VGA_LIGHT_CYAN, VGA_BLACK);           // Set color to Cyan on Black
+    vga_puts("\n");
+    vga_puts("  ========================================\n");
+    vga_puts("   x86_64 Kernel ");
+    vga_puts(KERNEL_VERSION);
+    vga_puts("\n");
+    vga_puts("  ========================================\n\n");
+    vga_set_color(VGA_WHITE, VGA_BLACK);                // Reset color to White on Black
+}
+
+// Function: print_init
+// Description: Prints a standardized initialization status line [OK/FAIL]
+// Arguments:
+//   component: Name of the subsystem being initialized
+//   success: Boolean result of the initialization
+static void print_init(const char* component, bool success) {
+    vga_puts("  [");                                    // Start bracket
+    if (success) {
+        vga_set_color(VGA_GREEN, VGA_BLACK);            // Set Green for OK
+        vga_puts(" OK ");
+    } else {
+        vga_set_color(VGA_RED, VGA_BLACK);              // Set Red for FAIL
+        vga_puts("FAIL");
+    }
+    vga_set_color(VGA_WHITE, VGA_BLACK);                // Reset color
+    vga_puts("] ");                                     // End bracket
+    vga_puts(component);                                // Print Component Name
+    vga_putc('\n');                                     // Newline
+}
+
+/**
+ * Main Kernel Entry Point
+ * This function is called from the assembly stub `_start` in kernel_entry.asm.
+ * 
+ * @param info Pointer to the boot_info structure passed by Stage2 bootloader
+ */
+void kernel_main(struct boot_info* info) {
+    // 1. Initialize Serial Port FIRST for debug logging (Headless support)
+    // This allows us to receive debug messages even if VGA fails.
+    serial_init();
+    
+    // 2. Initialize VGA Driver
+    // Sets up the text mode buffer and clears the screen.
+    vga_init();
+    
+    // Dual log to confirm entry (Serial + VGA)
+    vga_puts("DEBUG: Entered kernel_main\n");
+    
+    // 3. Validate Boot Information Structure
+    // This structure is passed in RDI by the bootloader (Stage 2)
+    if (info == NULL) {
+        vga_puts("WARNING: info is NULL (Bootloader Issue?)\n");
+    } else {
+        // Dump boot info details for verification
+        vga_puts("Info Ptr: "); vga_putx((uint64_t)info); vga_puts("\n");
+        vga_puts("Magic: "); vga_putx(info->magic); vga_puts("\n"); // Should be 0xDEADBEEF
+        vga_puts("Expected: "); vga_putx(0xDEADBEEF); vga_puts("\n");
+    }
+
+    // Check validity of boot info magic
+    if (!info || info->magic != 0xDEADBEEF) {
+        vga_set_color(VGA_RED, VGA_BLACK);
+        vga_puts("ERROR: Invalid boot info magic (soft pass)\n");
+        // We continue anyway to see how far we can get, but system is likely unstable
+        vga_set_color(VGA_WHITE, VGA_BLACK);
+    } else {
+        vga_puts("Boot Info OK\n");
+    }
+    
+    // 4. Display Welcome Banner
+    print_banner();
+    
+    // DEBUG: Direct write to video memory (Green 'X' visualization check)
+    // Just a sanity check to ensure we can write to 0xB8000
+    *((volatile uint16_t*)0xB8050) = 0x2F58; // 2F = White on Green, 58 = 'X'
+    
+    vga_set_color(VGA_YELLOW, VGA_BLACK);
+    vga_puts("Initializing kernel subsystems...\n\n");
+    vga_set_color(VGA_WHITE, VGA_BLACK);
+
+    // 5. Initialize Interrupt Descriptor Table (IDT)
+    // Sets up exception handlers (0-31) and prepares for IRQs
+    vga_puts("DEBUG: Init IDT...\n");
+    idt_init();
+    print_init("Interrupt Descriptor Table", true);
+    
+    // 6. Initialize Interrupt Requests (IRQ)
+    // Remaps PIC and installs handlers for Hardware Interrupts
+    vga_puts("DEBUG: Init IRQ...\n");
+    irq_init();
+    print_init("IRQ Handlers", true);
+    
+    // 7. Initialize Memory Manager (PMM + Buddy)
+    vga_puts("DEBUG: Init PMM...\n");
+    pmm_init(); // Init Per-CPU caches
+
+    
+    // Get E820 map from boot_info structure
+    struct boot_info* boot = info;
+    // The map is located immediately after the boot_info struct in memory
+    struct e820_entry* e820_entries = (struct e820_entry*)((uint64_t)info + sizeof(struct boot_info));
+    
+    // Display detected memory stats
+    vga_puts("      E820 entries: ");
+    vga_puti(boot->e820_count);
+    vga_puts(", Total: ");
+    vga_puti(boot->total_memory_mb);
+    vga_puts(" MB\n");
+    
+    // Initialize buddy allocator with E820
+    // This will calculate free regions and exclude the Secure Region
+    uint64_t secure_base = 0;
+    if (boot->e820_count > 0) {
+        buddy_init_e820(e820_entries, boot->e820_count, &secure_base);
+    } else {
+        // Fallback to static allocation if no E820 map provided (old bootloader?)
+        extern uint64_t _kernel_end; // Defined in linker script
+        uint64_t heap_start_addr = ((uint64_t)&_kernel_end + 4095) & ~4095; // Page align up
+        buddy_init((void*)heap_start_addr, 0x80000); // 512KB fallback
+    }
+    
+    print_init("Memory Allocator (PMM + Buddy)", true);
+
+    // PMM Cache Test executed in Phase 2 (verified)
+    
+    // Display Memory Statistics from Buddy Allocator
+    size_t total, used, free_mem;
+    pmm_stats(&total, &used, &free_mem);
+    vga_puts("      Heap: ");
+    vga_puti(total / 1024);
+    vga_puts(" KB");
+    if (secure_base) {
+        vga_puts(" | Secure: 64 KB");
+    }
+    vga_putc('\n');
+    // 7.5 Initialize Virtual Memory Manager
+    vga_puts("DEBUG: Init VMM...\n");
+    vmm_init(info);
+    print_init("VMM (Paging)", true);
+
+    // 7.8 Initialize Scheduler (BSP)
+    // CRITICAL: Must be initialized BEFORE SMP so APs find valid queues!
+    vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
+    vga_puts("DEBUG: Scheduler Init (BSP)...\n");
+    scheduler_init();
+    print_init("Priority Scheduler", true);
+
+    // 7.9 Initialize SMP (Boot APs)
+    vga_puts("DEBUG: Init SMP...\n");
+    smp_init();
+    print_init("SMP (Multi-Core)", true);
+
+    keyboard_init();
+    print_init("PS/2 Keyboard Driver", true);
+    
+    // Initialize IPC Message System (Slab Allocator)
+    msg_init();
+    print_init("IPC Message System", true);
+    
+    // Initialize Permission/Capability System
+    perm_init();
+    print_init("Capability System (Royalty)", true);
+    vga_puts("      Task 0 (kernel): All permissions\n");
+    
+    // Create a demo task (Task 1) with restricted user permissions
+    int result = perm_create_task(1, 0, 
+        PERM_MEMORY_ALLOC | PERM_MEMORY_FREE | 
+        PERM_MSG_SEND | PERM_MSG_RECEIVE |
+        PERM_SHELL_ACCESS);
+    if (result == 0) {
+        vga_puts("      Task 1 created with user permissions\n");
+    }
+    
+    vga_putc('\n');
+    vga_set_color(VGA_GREEN, VGA_BLACK);
+    vga_puts("==> Kernel initialization complete!\n\n");
+    vga_set_color(VGA_WHITE, VGA_BLACK);
+    
+    // 9. Start Multitasking (Priority Scheduler)
+    // NOTE: scheduler_init() was called earlier to support SMP
+    vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
+    vga_puts("DEBUG: Scheduler Active.\n");
+    print_init("Multitasking System", true);
+    
+    // Initialize Syscalls (INT 0x80)
+    syscall_init();
+    print_init("Syscall Interface (POSIX)", true);
+    
+    // Initialize Shell State
+    shell_init();
+    
+    // Spawn Shell as HIGH priority task (interactive)
+    // Spawn Shell as HIGH priority task (interactive)
+    struct task* shell_task = task_create_priority(shell_run, PRIORITY_HIGH);
+    
+    if (shell_task == NULL) {
+        vga_set_color(VGA_RED, VGA_BLACK);
+        vga_puts("ERROR: Failed to create Shell Task!\n");
+        PANIC("Shell Task Creation Failed");
+    } else {
+        // Assign necessary permissions to the shell task
+        shell_task->perm_mask = PERM_SHELL_ACCESS | PERM_MSG_SEND | PERM_MSG_RECEIVE;
+        vga_puts("      Shell Task (PID ");
+        vga_puti(shell_task->pid);
+        vga_puts(") Priority: HIGH\n");
+    }
+    print_init("Multitasking System", true);
+
+    // Global Interrupt Enable
+    vga_puts("Enabling Interrupts...\n");
+    
+    // Initialize IOAPIC for Hardware Interrupt routing
+    ioapic_init();
+    ioapic_enable_keyboard(); // Enable IRQ 1 -> Vector 33
+    irq_set_apic_mode(true);  // Tell IRQ handlers to use LAPIC EOI
+    
+    // Mask Legacy PIC (Just in case)
+    outb(0x21, 0xFF); 
+    outb(0xA1, 0xFF);
+    
+    // CRITICAL: Activate LAPIC Timer on BSP (Vector 127) to enable Preemption!
+    // Without this, if the BSP runs a task (like Shell), it will never switch.
+    lapic_timer_init(127);
+    
+    sti();
+    
+    // The Kernel Main (Task 0) now typically becomes the Idle task
+    // Priority IDLE, runs only when no other task is READY
+    vga_puts("Ready.\n\n");
+    
+    // Infinite Loop (Idle Task)
+    while(1) {
+        hlt(); // Halt CPU to save power until next interrupt
+    }
+}
+
+/**
+ * Global Kernel Panic Handler.
+ * Called when a critical error occurs (Assertion failed, unhandled exception).
+ * 
+ * @param message Description of the error
+ * @param file Source file where panic occurred
+ * @param line Line number where panic occurred
+ */
+void kernel_panic(const char* message, const char* file, int line) {
+    // Prevent infinite panic loops
+    static int panic_depth = 0;
+    if (panic_depth++ > 3) {
+        asm volatile("cli; hlt");
+    }
+
+    // Disable interrupts to stop the world (ensure no context switches)
+    cli();
+
+    // Display Panic Screen (Red)
+    vga_set_color(VGA_WHITE, VGA_RED);
+    vga_puts("\n\n!! KERNEL PANIC !!\n");
+    vga_puts("Reason: ");
+    vga_puts(message);
+    vga_puts("\nFile:   ");
+    vga_puts(file);
+    vga_puts("\nLine:   ");
+    vga_puti(line);
+    vga_puts("\n\n");
+    
+    vga_puts("Attempting soft recovery...\n");
+    
+    // Busy wait delay (spin loop) to let user read message
+    for(volatile int i = 0; i < 10000000; i++); 
+
+    vga_set_color(VGA_LIGHT_GREEN, VGA_BLACK);
+    vga_puts("Restarting Shell...\n");
+    
+    // Re-enable interrupts to try and resume minimal functionality
+    sti();
+    
+    // Try to restart the shell environment
+    shell_init();
+    shell_run();
+    
+    // If recovery fails and we return, hard halt
+    vga_set_color(VGA_RED, VGA_BLACK);
+    vga_puts("System Halted (Recovery Failed).");
+    while(1) hlt();
+}

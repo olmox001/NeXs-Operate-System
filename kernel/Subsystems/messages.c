@@ -1,0 +1,338 @@
+/*
+ * messages.c - IPC Message System with Slab Allocator Implementation
+ *
+ * BSD 3-Clause License
+ * Copyright (c) 2025, NeXs Operate System
+ */
+
+#include "messages.h"
+#include "libx.h"
+#include "buddy.h"
+#include "handlers.h" // For context (scheduler aware?)
+#include "timer.h"    // For timestamps
+
+// =============================================================================
+// Slab Allocator State
+// =============================================================================
+
+// Fixed payload sizes for slabs
+static const size_t slab_sizes[MSG_SLAB_COUNT] = {
+    16,     // SLAB_16
+    64,     // SLAB_64
+    256,    // SLAB_256
+    1024,   // SLAB_1024
+    4096    // SLAB_4096
+};
+
+// Generic list node for free blocks
+struct slab_block {
+    struct slab_block* next;
+};
+
+// Heads of free lists for each class
+static struct slab_block* slab_free[MSG_SLAB_COUNT];
+
+// Statistics
+static uint32_t slab_alloc_count[MSG_SLAB_COUNT];
+
+// SMP Lock
+#include "spinlock.h"
+static spinlock_t msg_lock = {0};
+
+// =============================================================================
+// Global Queue Registry
+// =============================================================================
+// Indexed by PID. TODO: Dynamic array or Hash Map for scalability.
+static struct msg_queue* task_queues[MAX_TASKS];
+
+// =============================================================================
+// Internal Helpers
+// =============================================================================
+
+/**
+ * Determine best slab class for a given size.
+ * Returns index 0-4, or -1 if too large.
+ */
+static int size_to_slab(size_t size) {
+    for (int i = 0; i < MSG_SLAB_COUNT; i++) {
+        if (size <= slab_sizes[i]) return i;
+    }
+    return -1; // Exceeds MSG_MAX_SIZE
+}
+
+/**
+ * Get (or create) queue for a task ID
+ */
+static struct msg_queue* get_queue(uint32_t task_id) {
+    if (task_id >= MAX_TASKS) return NULL;
+    
+    // Lazy Allocation
+    if (!task_queues[task_id]) {
+        task_queues[task_id] = (struct msg_queue*)buddy_alloc(sizeof(struct msg_queue));
+        if (task_queues[task_id]) {
+            memset(task_queues[task_id], 0, sizeof(struct msg_queue));
+        }
+    }
+    return task_queues[task_id];
+}
+
+// =============================================================================
+// API Implementation
+// =============================================================================
+
+void msg_init(void) {
+    // Clear Queues
+    for (int i = 0; i < MAX_TASKS; i++) {
+        task_queues[i] = NULL;
+    }
+    // Clear Slabs
+    for (int i = 0; i < MSG_SLAB_COUNT; i++) {
+        slab_free[i] = NULL;
+        slab_alloc_count[i] = 0;
+    }
+    spinlock_init(&msg_lock);
+}
+
+/**
+ * Allocate Message from Slab
+ */
+struct message* msg_alloc(size_t data_size) {
+    spinlock_acquire(&msg_lock);
+    int slab = size_to_slab(data_size);
+    if (slab < 0) {
+        spinlock_release(&msg_lock);
+        return NULL;
+    }
+    
+    size_t total_size = sizeof(struct message) + slab_sizes[slab];
+    struct message* msg;
+    
+    // 1. Check Free List
+    if (slab_free[slab]) {
+        msg = (struct message*)slab_free[slab];
+        slab_free[slab] = slab_free[slab]->next;
+    } else {
+        // 2. Allocate New Block from Heap
+        msg = (struct message*)buddy_alloc(total_size);
+        if (!msg) {
+            spinlock_release(&msg_lock);
+            return NULL;
+        }
+        slab_alloc_count[slab]++;
+    }
+    
+    memset(msg, 0, total_size);
+    msg->slab_class = slab;
+    msg->size = data_size;
+    
+    spinlock_release(&msg_lock);
+    return msg;
+}
+
+/**
+ * Return Message to Slab
+ */
+void msg_free(struct message* msg) {
+    if (!msg) return;
+    
+    spinlock_acquire(&msg_lock);
+    
+    // Cast to list node
+    struct slab_block* blk = (struct slab_block*)msg;
+    
+    // Push to head of free list
+    blk->next = slab_free[msg->slab_class];
+    slab_free[msg->slab_class] = blk;
+    
+    spinlock_release(&msg_lock);
+}
+
+/**
+ * Send Message (Copy)
+ */
+int msg_send(uint32_t sender, uint32_t receiver, uint32_t type,
+             const void* data, uint32_t size) {
+             
+    if (size > MSG_MAX_SIZE) return -1;
+    
+    // Broadcast Logic (Sender -> All Others)
+    if (receiver == 0) {
+        int success = 0;
+        for (uint32_t i = 1; i < MAX_TASKS; i++) {
+            if (i != sender && task_queues[i]) {
+                if (msg_send(sender, i, type, data, size) == 0) success++;
+            }
+        }
+        return success > 0 ? 0 : -1;
+    }
+    
+    spinlock_acquire(&msg_lock);
+    
+    // Single Recipient
+    struct msg_queue* queue = get_queue(receiver);
+    if (!queue) {
+        spinlock_release(&msg_lock);
+        return -1;
+    }
+    
+    // Check Full
+    if (queue->count >= MSG_QUEUE_SIZE) {
+        spinlock_release(&msg_lock);
+        return -1;
+    }
+    
+    // Allocate (Internal alloc has its own lock? NO, wait. Recursive lock?)
+    // msg_alloc uses msg_lock. If we hold msg_lock here, msg_alloc will deadlock!
+    // FIX: Release lock before alloc, or use internal alloc?
+    // Better: Helper functions without lock or re-entrant logic.
+    // simpler: RELEASE lock, allocate, RE-ACQUIRE.
+    spinlock_release(&msg_lock);
+    
+    // Allocate
+    struct message* msg = msg_alloc(size);
+    if (!msg) return -1;
+    
+    spinlock_acquire(&msg_lock);
+    
+    // Must re-fetch queue just in case (though buddy won't move it)
+    queue = get_queue(receiver); 
+    if (!queue || queue->count >= MSG_QUEUE_SIZE) {
+        spinlock_release(&msg_lock);
+        msg_free(msg); // This re-acquires lock! Fine since we released.
+        return -1;
+    }
+    
+    // Copy Data
+    msg->sender_id = sender;
+    msg->receiver_id = receiver;
+    msg->type = type;
+    msg->timestamp = timer_get_ticks();
+    
+    if (data && size > 0) {
+        memcpy(msg->data, data, size);
+    }
+    
+    // Enqueue
+    queue->messages[queue->write_pos] = msg;
+    queue->write_pos = (queue->write_pos + 1) % MSG_QUEUE_SIZE;
+    queue->count++;
+    
+    spinlock_release(&msg_lock);
+    
+    // Wake up receiver if sleeping? (Task state handling logic would go here)
+    // if (receiver_task->state == TASK_WAITING_MSG) scheduler_wake(receiver_task);
+    
+    return 0;
+}
+
+/**
+ * Send Message (Pointer)
+ */
+int msg_send_ptr(uint32_t sender, uint32_t receiver, void* ptr, uint32_t size) {
+    spinlock_acquire(&msg_lock);
+    struct msg_queue* queue = get_queue(receiver);
+    if (!queue) {
+        spinlock_release(&msg_lock);
+        return -1;
+    }
+    if (queue->count >= MSG_QUEUE_SIZE) {
+        spinlock_release(&msg_lock);
+        return -1;
+    }
+    spinlock_release(&msg_lock);
+    
+    // Allocate
+    struct message* msg = msg_alloc(sizeof(void*));
+    if (!msg) return -1;
+    
+    spinlock_acquire(&msg_lock);
+    queue = get_queue(receiver);
+    if (!queue || queue->count >= MSG_QUEUE_SIZE) {
+        spinlock_release(&msg_lock);
+        msg_free(msg);
+        return -1;
+    }
+    
+    msg->sender_id = sender;
+    msg->receiver_id = receiver;
+    msg->type = MSG_TYPE_POINTER;
+    msg->size = size; // Metadata: size of the object pointed to
+    msg->timestamp = timer_get_ticks();
+    
+    // Store pointer in data payload
+    *(void**)msg->data = ptr;
+    
+    queue->messages[queue->write_pos] = msg;
+    queue->write_pos = (queue->write_pos + 1) % MSG_QUEUE_SIZE;
+    queue->count++;
+    
+    spinlock_release(&msg_lock);
+    return 0;
+}
+
+/**
+ * Receive Message (Blocking)
+ */
+int msg_receive(uint32_t receiver, struct message* out_msg) {
+    if (!out_msg) return -1;
+    
+    struct msg_queue* queue = get_queue(receiver);
+    if (!queue) return -1;
+    
+    // Wait Loop
+    // TODO: Use scheduler sleep/wake blocks instead of spinloop hlt()
+    // Wait Loop
+    // TODO: Use scheduler sleep/wake blocks instead of spinloop hlt()
+    while (1) {
+        spinlock_acquire(&msg_lock);
+        if (queue->count > 0) break; // Found message
+        spinlock_release(&msg_lock);
+        
+        asm volatile("hlt");
+    }
+    // Hold lock here from break
+    
+    // Dequeue
+    struct message* msg = queue->messages[queue->read_pos];
+    
+    // Copy to user provided buffer envelope
+    // Note: out_msg is just a struct message*, but we need to copy payload too.
+    // The caller usually provides a buffer. This interface assumes 'out_msg'
+    // points to large enough storage. This is risky in C.
+    // Ideally user passes buffer size. For now, assume sufficient.
+    memcpy(out_msg, msg, sizeof(struct message) + msg->size);
+    
+    queue->read_pos = (queue->read_pos + 1) % MSG_QUEUE_SIZE;
+    queue->count--;
+    
+    spinlock_release(&msg_lock);
+    
+    // Free internal buffer (safe, re-acquires lock)
+    msg_free(msg);
+    
+    return 0;
+}
+
+bool msg_available(uint32_t receiver) {
+    if (receiver >= MAX_TASKS) return false;
+    struct msg_queue* queue = task_queues[receiver];
+    return queue && queue->count > 0;
+}
+
+uint32_t msg_count(uint32_t receiver) {
+    if (receiver >= MAX_TASKS) return 0;
+    struct msg_queue* queue = task_queues[receiver];
+    return queue ? queue->count : 0;
+}
+
+void msg_clear(uint32_t receiver) {
+    if (receiver >= MAX_TASKS) return;
+    struct msg_queue* queue = task_queues[receiver];
+    if (!queue) return;
+    
+    while (queue->count > 0) {
+        msg_free(queue->messages[queue->read_pos]);
+        queue->read_pos = (queue->read_pos + 1) % MSG_QUEUE_SIZE;
+        queue->count--;
+    }
+}
