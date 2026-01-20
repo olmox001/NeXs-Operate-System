@@ -65,30 +65,30 @@ struct task {
     // 1. CPU Context (Must be first for assembly offset stability)
     uint64_t  rsp;          // Stack Pointer (saved during switch)
     uint64_t  cr3;          // Page Directory (Virtual Memory Context)
-    
+
     // 2. Identity
     uint32_t  pid;          // Process ID
     uint32_t  state;        // Current State enum
-    
+
     // 3. Security
     uint8_t   uid;          // User ID
     uint8_t   gid;          // Group ID
     uint8_t   priority;     // Scheduling Priority
     uint8_t   flags;        // Task Flags
-    
+
     // 4. Scheduling Metrics
     uint16_t  quantum;      // Time slices remaining in this turn
     uint16_t  base_quantum; // Reset value for quantum
-    
+
     // 5. Timing Stats
     uint64_t  sleep_expiry; // Wakeup timestamp (if SLEEPING)
     uint64_t  cpu_time;     // Total ticks consumed
     uint64_t  start_time;   // Creation timestamp
-    
+
     // 6. Resources
     void*     stack_base;   // Kernel Stack Base Address
     uint32_t  perm_mask;    // Permission Capability Mask
-    
+
     // 7. List Management
     struct task* next;      // Next task in circular list
 };
@@ -116,6 +116,11 @@ void schedule(void);
 void yield(void);
 void sleep(uint64_t ms);
 void exit(void);
+
+// Scheduler Helper API
+struct task* scheduler_get_task(uint32_t pid);
+void scheduler_wake(struct task* t);
+void scheduler_wait_msg(void);
 
 // Task Modification
 void task_set_priority(struct task* t, uint8_t priority);
