@@ -129,8 +129,9 @@ int msg_send_ptr(uint32_t sender, uint32_t receiver, void* ptr, uint32_t size);
  * 
  * @param receiver PID (usually current task)
  * @param out_msg Buffer to hold received message
+ * @param max_size Maximum size of the out_msg buffer (to prevent overflow)
  */
-int msg_receive(uint32_t receiver, struct message* msg);
+int msg_receive(uint32_t receiver, struct message* msg, size_t max_size);
 
 /**
  * Check for pending messages (Non-blocking poll)
