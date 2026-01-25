@@ -41,6 +41,36 @@
 #include "handlers.h"
 #include "buddy.h"
 #include "timer.h"
+#include "serial.h"
+#include "libx.h"
+
+// =============================================================================
+// Security & Validation
+// =============================================================================
+
+// Symbol from Linker Script pointing to end of kernel static image
+extern uint64_t _kernel_end;
+
+/**
+ * Validate User Pointer
+ * Ensures the pointer points to a valid user memory region (Heap/Stack).
+ * Protects Kernel Code, Data, IDT, and BIOS/Low Memory.
+ */
+static bool is_safe_ptr(const void* ptr, size_t size) {
+    if (!ptr) return false;
+    uint64_t start = (uint64_t)ptr;
+    uint64_t end = start + size;
+
+    // Check for integer overflow
+    if (end < start) return false;
+
+    // Kernel Boundary Check
+    // We enforce that user pointers must be above the static kernel image.
+    // [0x000000 - _kernel_end] is STRICTLY RESERVED for Kernel/BIOS.
+    if (start < (uint64_t)&_kernel_end) return false;
+
+    return true;
+}
 
 // =============================================================================
 // Internal Syscall Implementation Functions
@@ -48,13 +78,32 @@
 
 /**
  * SYS_WRITE (1)
- * Currently only supports writing to stdout (FD 1) via VGA.
+ * Writes to stdout (VGA + Serial).
+ * Securely checks buffer bounds and handles output atomically.
  */
 static int64_t sys_write(int fd, const char* buf, size_t len) {
-    (void)fd; (void)len; // Unused for now
-    if (!buf) return -1;
-    vga_puts(buf);
-    return 0; // Success (TODO: Return bytes written)
+    (void)fd;
+
+    // Security Check
+    if (!is_safe_ptr(buf, len)) return -1;
+
+    // Limit length to prevent DoS via long interrupt disable (max 1KB per call)
+    if (len > 1024) len = 1024;
+
+    // Atomic Output Section
+    // We disable interrupts to prevent text interleaving from multiple tasks
+    uint64_t flags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(flags));
+
+    for (size_t i = 0; i < len; i++) {
+        vga_putc(buf[i]);
+        serial_putc(buf[i]);
+    }
+
+    // Restore Interrupts
+    if (flags & 0x200) asm volatile("sti");
+
+    return (int64_t)len;
 }
 
 /**
@@ -64,7 +113,11 @@ static int64_t sys_write(int fd, const char* buf, size_t len) {
  */
 static int64_t sys_read(int fd, char* buf, size_t len) {
     (void)fd; (void)len;
-    if (!buf) return -1;
+
+    // Security Check (Write Access)
+    // Even though we only write 1 byte, check pointer validity
+    if (!is_safe_ptr(buf, 1)) return -1;
+
     if (!keyboard_available()) return 0;
     *buf = keyboard_getchar();
     return 1;
@@ -91,6 +144,11 @@ static int64_t sys_uptime(void) {
  * populates variables with memory stats.
  */
 static int64_t sys_meminfo(size_t* total, size_t* used, size_t* free_mem) {
+    // Security Checks (Write Access)
+    if (!is_safe_ptr(total, sizeof(size_t))) return -1;
+    if (!is_safe_ptr(used, sizeof(size_t))) return -1;
+    if (!is_safe_ptr(free_mem, sizeof(size_t))) return -1;
+
     buddy_stats(total, used, free_mem);
     return 0;
 }
@@ -148,6 +206,10 @@ static int64_t sys_msgrcv(uint32_t task_id) {
  * Retrieves state and priority of a process.
  */
 static int64_t sys_taskinfo(uint32_t pid, uint32_t* state, uint8_t* priority) {
+    // Security Checks (Write Access)
+    if (state && !is_safe_ptr(state, sizeof(uint32_t))) return -1;
+    if (priority && !is_safe_ptr(priority, sizeof(uint8_t))) return -1;
+
     // Find task by PID
     if (!current_task) return -1;
     struct task* t = current_task;
@@ -189,14 +251,14 @@ static int64_t sys_getfreq(void) {
  */
 void syscall_handler(struct interrupt_frame* frame) {
     if (!frame) return;
-    
+
     uint64_t num = frame->rax;
     uint64_t a1 = frame->rdi;
     uint64_t a2 = frame->rsi;
     uint64_t a3 = frame->rdx;
-    
+
     int64_t ret = -1;
-    
+
     switch (num) {
         case SYS_READ:      ret = sys_read((int)a1, (char*)a2, (size_t)a3); break;
         case SYS_WRITE:     ret = sys_write((int)a1, (const char*)a2, (size_t)a3); break;
@@ -213,7 +275,7 @@ void syscall_handler(struct interrupt_frame* frame) {
         case SYS_GETFREQ:   ret = sys_getfreq(); break;
         default: ret = -1; break;
     }
-    
+
     frame->rax = (uint64_t)ret; // Store return value
 }
 
@@ -263,6 +325,8 @@ uint64_t sys_uptime_wrapper(void) { return SYSCALL0(SYS_UPTIME); }
 void sys_sleep_wrapper(uint64_t ms) { SYSCALL1(SYS_SLEEP, ms); }
 
 // Legacy Wrappers
-void syscall_write(const char* s) { write(1, s, 0); }
+void syscall_write(const char* s) {
+    if (s) write(1, s, strlen(s));
+}
 void syscall_yield(void) { sched_yield(); }
 int syscall_getpid(void) { return getpid(); }
