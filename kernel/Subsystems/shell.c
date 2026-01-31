@@ -50,6 +50,7 @@ static void cmd_sleep(const char* args);
 static void cmd_priority(const char* args);
 static void cmd_reboot(void);
 static void cmd_halt(void);
+static void cmd_test_write(void);
 
 // =============================================================================
 // Helpers
@@ -166,6 +167,7 @@ void shell_execute(const char* cmd) {
     else if (strcmp(cmd_name, "priority") == 0) cmd_priority(args);
     else if (strcmp(cmd_name, "reboot") == 0)   cmd_reboot();
     else if (strcmp(cmd_name, "halt") == 0)     cmd_halt();
+    else if (strcmp(cmd_name, "test_write") == 0) cmd_test_write();
     else if (strcmp(cmd_name, "uid") == 0) {
         vga_puts("Current UID: ");
         vga_puti(current_task ? current_task->uid : 0); // Handle null task
@@ -391,5 +393,27 @@ static void cmd_halt(void) {
     asm volatile("cli");
     while(1) {
         asm volatile("hlt");
+    }
+}
+
+static void cmd_test_write(void) {
+    vga_puts("Testing sys_write with non-null-terminated buffer...\n");
+
+    // Create a buffer with no null terminator in the first 5 chars
+    // but put some garbage after to ensure we see if it over-reads.
+    char buf[10];
+    buf[0] = 'H'; buf[1] = 'e'; buf[2] = 'l'; buf[3] = 'l'; buf[4] = 'o';
+    buf[5] = 'X'; buf[6] = 'Y'; buf[7] = 'Z'; buf[8] = 0; buf[9] = 0;
+
+    vga_puts("Expected: 'Hello'\nActual:   '");
+
+    // We use the write() wrapper which calls sys_write
+    // passing length 5.
+    write(1, buf, 5);
+
+    vga_puts("'\n");
+
+    if (buf[5] == 'X') { // Sanity check that we didn't corrupt memory
+         vga_puts("Test Finished.\n");
     }
 }

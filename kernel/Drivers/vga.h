@@ -87,6 +87,9 @@ void vga_set_color(uint8_t fg, uint8_t bg);
 // Print String
 void vga_puts(const char* str);
 
+// Print Buffer (Length-bounded)
+void vga_write(const char* str, size_t len);
+
 // Print Character
 void vga_putc(char c);
 
