@@ -90,6 +90,15 @@ void serial_putc(char a) {
 }
 
 /**
+ * Write a buffer
+ */
+void serial_write(const char* buf, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        serial_putc(buf[i]);
+    }
+}
+
+/**
  * Write a string
  */
 void serial_puts(const char* str) {
