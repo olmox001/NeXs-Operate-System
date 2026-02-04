@@ -50,16 +50,16 @@ static int init_serial(void) {
     outb(PORT + 1, 0x00);    // Disable all UART interrupts (Polling mode for output)
     outb(PORT + 3, 0x80);    // Enable DLAB (Divisor Latch Access Bit)
                              // This allows accessing the baud rate divisor registers
-    
+
     // Set Baud Rate to 38400 (Max is 115200)
     // Divisor = 115200 / 38400 = 3
     outb(PORT + 0, 0x03);    // Set divisor low byte
     outb(PORT + 1, 0x00);    // Set divisor high byte
-    
+
     outb(PORT + 3, 0x03);    // 8 bits, no parity, one stop bit (Line Protocol)
     outb(PORT + 2, 0xC7);    // Enable FIFO, clear them, with 14-byte threshold
                              // (0xC7 = 11000111)
-    
+
     outb(PORT + 4, 0x0B);    // Enable IRQs, RTS/DSR set
                              // (0x0B = 00001011)
     return 0;
@@ -95,6 +95,15 @@ void serial_putc(char a) {
 void serial_puts(const char* str) {
     while (*str) {
         serial_putc(*str++);
+    }
+}
+
+/**
+ * Write a fixed-length buffer
+ */
+void serial_write(const char* buf, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        serial_putc(buf[i]);
     }
 }
 

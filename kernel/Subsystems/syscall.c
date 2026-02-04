@@ -51,10 +51,14 @@
  * Currently only supports writing to stdout (FD 1) via VGA.
  */
 static int64_t sys_write(int fd, const char* buf, size_t len) {
-    (void)fd; (void)len; // Unused for now
+    (void)fd;
     if (!buf) return -1;
-    vga_puts(buf);
-    return 0; // Success (TODO: Return bytes written)
+
+    // Cap length to avoid excessive lockups (DoS protection)
+    if (len > 1024) len = 1024;
+
+    vga_write(buf, len);
+    return len;
 }
 
 /**
@@ -63,8 +67,10 @@ static int64_t sys_write(int fd, const char* buf, size_t len) {
  * Non-blocking for now. returns 1 if char read, 0 if empty.
  */
 static int64_t sys_read(int fd, char* buf, size_t len) {
-    (void)fd; (void)len;
+    (void)fd;
     if (!buf) return -1;
+    if (len == 0) return 0;
+
     if (!keyboard_available()) return 0;
     *buf = keyboard_getchar();
     return 1;
@@ -189,14 +195,14 @@ static int64_t sys_getfreq(void) {
  */
 void syscall_handler(struct interrupt_frame* frame) {
     if (!frame) return;
-    
+
     uint64_t num = frame->rax;
     uint64_t a1 = frame->rdi;
     uint64_t a2 = frame->rsi;
     uint64_t a3 = frame->rdx;
-    
+
     int64_t ret = -1;
-    
+
     switch (num) {
         case SYS_READ:      ret = sys_read((int)a1, (char*)a2, (size_t)a3); break;
         case SYS_WRITE:     ret = sys_write((int)a1, (const char*)a2, (size_t)a3); break;
@@ -213,7 +219,7 @@ void syscall_handler(struct interrupt_frame* frame) {
         case SYS_GETFREQ:   ret = sys_getfreq(); break;
         default: ret = -1; break;
     }
-    
+
     frame->rax = (uint64_t)ret; // Store return value
 }
 

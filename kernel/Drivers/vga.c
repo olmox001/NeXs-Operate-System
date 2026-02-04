@@ -75,11 +75,11 @@ static inline uint8_t vga_color(uint8_t fg, uint8_t bg) {
  */
 static void update_cursor(void) {
     uint16_t pos = cursor_y * VGA_WIDTH + cursor_x;
-    
+
     // Register 0x0F: Cursor Location Low Byte
     outb(0x3D4, 0x0F);
     outb(0x3D5, (uint8_t)(pos & 0xFF));
-    
+
     // Register 0x0E: Cursor Location High Byte
     outb(0x3D4, 0x0E);
     outb(0x3D5, (uint8_t)((pos >> 8) & 0xFF));
@@ -101,12 +101,12 @@ void vga_init(void) {
  */
 void vga_clear(void) {
     uint16_t empty = vga_entry(' ', current_color);
-    
+
     // Fill entire buffer with space character
     for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++) {
         vga_buffer[i] = empty;
     }
-    
+
     // Reset Cursor
     cursor_x = 0;
     cursor_y = 0;
@@ -129,24 +129,24 @@ void vga_scroll(void) {
     volatile uint16_t* dst = vga_buffer;
     volatile uint16_t* src = vga_buffer + VGA_WIDTH;
     int count = VGA_WIDTH * (VGA_HEIGHT - 1);
-    
+
     // Optimization: Use 64-bit copy (4 characters at once)
     volatile uint64_t* dst64 = (volatile uint64_t*)dst;
     volatile uint64_t* src64 = (volatile uint64_t*)src;
     int count64 = count / 4;
-    
+
     for (int i = 0; i < count64; i++) {
         dst64[i] = src64[i];
     }
-    
+
     // 2. Clear Bottom Line
     uint16_t blank = vga_entry(' ', current_color);
     dst = vga_buffer + (VGA_WIDTH * (VGA_HEIGHT - 1));
-    
+
     for (int x = 0; x < VGA_WIDTH; x++) {
         dst[x] = blank;
     }
-    
+
     // 3. Keep cursor on last line
     cursor_y = VGA_HEIGHT - 1;
 }
@@ -174,18 +174,18 @@ void vga_putc(char c) {
         vga_buffer[cursor_y * VGA_WIDTH + cursor_x] = vga_entry(c, current_color);
         cursor_x++;
     }
-    
+
     // Handle Line Wrapping
     if (cursor_x >= VGA_WIDTH) {
         cursor_x = 0;
         cursor_y++;
     }
-    
+
     // Handle Scrolling
     if (cursor_y >= VGA_HEIGHT) {
         vga_scroll();
     }
-    
+
     update_cursor();
 }
 
@@ -196,19 +196,38 @@ void vga_putc(char c) {
 void vga_puts(const char* str) {
     // 1. Mirror to Serial Port (Headless Debugging / Logs)
     serial_puts(str);
-    
+
     // 2. Critical Section (Atomic visual update)
     // Disable interrupts to prevent context switches during printing,
     // which could scramble output from multiple tasks.
     uint64_t flags;
     asm volatile("pushfq; pop %0; cli" : "=r"(flags));
-    
+
     const char* s = str;
     while (*s) {
         vga_putc(*s++);
     }
-    
+
     // Restore Interrupts from saved flags
+    if (flags & 0x200) asm volatile("sti");
+}
+
+/**
+ * Put fixed-length buffer
+ */
+void vga_write(const char* buf, size_t len) {
+    // 1. Mirror to Serial Port
+    serial_write(buf, len);
+
+    // 2. Critical Section
+    uint64_t flags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(flags));
+
+    for (size_t i = 0; i < len; i++) {
+        vga_putc(buf[i]);
+    }
+
+    // Restore Interrupts
     if (flags & 0x200) asm volatile("sti");
 }
 
