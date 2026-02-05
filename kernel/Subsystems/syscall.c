@@ -33,6 +33,7 @@
 
 #include "syscall.h"
 #include "vga.h"
+#include "libx.h"
 #include "keyboard.h"
 #include "process.h"
 #include "idt.h"
@@ -51,10 +52,16 @@
  * Currently only supports writing to stdout (FD 1) via VGA.
  */
 static int64_t sys_write(int fd, const char* buf, size_t len) {
-    (void)fd; (void)len; // Unused for now
+    (void)fd;
     if (!buf) return -1;
-    vga_puts(buf);
-    return 0; // Success (TODO: Return bytes written)
+
+    // Security: Enforce maximum buffer length to prevent DoS
+    if (len > 1024) {
+        len = 1024;
+    }
+
+    vga_write(buf, len);
+    return (int64_t)len;
 }
 
 /**
@@ -263,6 +270,6 @@ uint64_t sys_uptime_wrapper(void) { return SYSCALL0(SYS_UPTIME); }
 void sys_sleep_wrapper(uint64_t ms) { SYSCALL1(SYS_SLEEP, ms); }
 
 // Legacy Wrappers
-void syscall_write(const char* s) { write(1, s, 0); }
+void syscall_write(const char* s) { write(1, s, strlen(s)); }
 void syscall_yield(void) { sched_yield(); }
 int syscall_getpid(void) { return getpid(); }
