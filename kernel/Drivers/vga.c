@@ -190,6 +190,16 @@ void vga_putc(char c) {
 }
 
 /**
+ * Write Buffer to Screen
+ * No locking - caller must ensure atomicity if needed.
+ */
+void vga_write(const char* str, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        vga_putc(str[i]);
+    }
+}
+
+/**
  * Put String
  * Also mirrors output to Serial Port for debug purposes.
  */
@@ -203,10 +213,7 @@ void vga_puts(const char* str) {
     uint64_t flags;
     asm volatile("pushfq; pop %0; cli" : "=r"(flags));
     
-    const char* s = str;
-    while (*s) {
-        vga_putc(*s++);
-    }
+    vga_write(str, strlen(str));
     
     // Restore Interrupts from saved flags
     if (flags & 0x200) asm volatile("sti");

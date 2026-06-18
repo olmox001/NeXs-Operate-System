@@ -1,0 +1,4 @@
+## 2025-05-23 - Buffer Over-read in sys_write
+**Vulnerability:** The `sys_write` system call ignored the `len` parameter and used `vga_puts`, which relies on null termination. This allowed a user to pass a non-null-terminated buffer, causing the kernel to read and print memory past the buffer boundary (Information Leak, potential Denial of Service).
+**Learning:** In "Ring 0 only" systems, implicit trust in user pointers combined with standard library functions that expect null termination (like `puts`) is a dangerous pattern. Driver interfaces should support explicit lengths to avoid this.
+**Prevention:** Always validate and use the length parameter in system calls. Implement length-aware driver functions (e.g., `vga_write(buf, len)`) instead of relying solely on `puts` or `printf` for user data.

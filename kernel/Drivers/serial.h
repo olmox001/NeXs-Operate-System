@@ -35,6 +35,8 @@
 #ifndef SERIAL_H
 #define SERIAL_H
 
+#include "kernel.h"
+
 // =============================================================================
 // Driver Interface
 // =============================================================================
@@ -59,5 +61,13 @@ void serial_putc(char c);
  * @param str Null-terminated string
  */
 void serial_puts(const char* str);
+
+/**
+ * Write a buffer to serial port.
+ *
+ * @param str Buffer pointer
+ * @param len Length
+ */
+void serial_write(const char* str, size_t len);
 
 #endif // SERIAL_H

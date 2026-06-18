@@ -33,6 +33,7 @@
 
 #include "syscall.h"
 #include "vga.h"
+#include "serial.h"
 #include "keyboard.h"
 #include "process.h"
 #include "idt.h"
@@ -51,10 +52,24 @@
  * Currently only supports writing to stdout (FD 1) via VGA.
  */
 static int64_t sys_write(int fd, const char* buf, size_t len) {
-    (void)fd; (void)len; // Unused for now
+    if (fd != 1) return -1;
     if (!buf) return -1;
-    vga_puts(buf);
-    return 0; // Success (TODO: Return bytes written)
+
+    // Cap length to prevent CPU monopoly
+    if (len > 1024) len = 1024;
+
+    // 1. Serial Output (Interrupts Enabled)
+    serial_write(buf, len);
+
+    // 2. VGA Output (Interrupts Disabled)
+    uint64_t flags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(flags));
+
+    vga_write(buf, len);
+
+    if (flags & 0x200) asm volatile("sti");
+
+    return (int64_t)len;
 }
 
 /**
