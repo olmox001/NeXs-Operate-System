@@ -20,6 +20,9 @@
 // Maximum number of messages pending in a task's queue
 #define MSG_QUEUE_SIZE  64
 
+// Error Codes
+#define MSG_ERR_BUFFER_TOO_SMALL -2
+
 // Maximum size of a message payload
 #define MSG_MAX_SIZE    4096
 
@@ -87,7 +90,7 @@ void msg_init(void);
 /**
  * Allocate a message buffer
  * Uses the appropriate slab class for the requested size.
- * 
+ *
  * @param data_size Size of payload needed
  * @return Pointer to message envelope
  */
@@ -102,7 +105,7 @@ void msg_free(struct message* msg);
 /**
  * Send Message (Copy)
  * Allocates a buffer, copies data, and enqueues it to receiver.
- * 
+ *
  * @param sender PID of sender
  * @param receiver PID of receiver (0 = Broadcast, handled internally)
  * @param type Message Type
@@ -117,7 +120,7 @@ int msg_send(uint32_t sender, uint32_t receiver, uint32_t type,
  * Send Message (Pointer / Zero-Copy)
  * Passes a raw pointer. Used for shared memory or large buffers.
  * CAUTION: Ensure memory ownership/lifetime is managed safely.
- * 
+ *
  * @param ptr Function pointer or data pointer to send
  */
 int msg_send_ptr(uint32_t sender, uint32_t receiver, void* ptr, uint32_t size);
@@ -126,11 +129,12 @@ int msg_send_ptr(uint32_t sender, uint32_t receiver, void* ptr, uint32_t size);
  * Receive Message
  * Blocking call. Waits until a message arrives.
  * Copies message content to out_msg buffer (caller must allocate sufficient stack/heap).
- * 
+ *
  * @param receiver PID (usually current task)
  * @param out_msg Buffer to hold received message
+ * @param max_size Maximum size of the out_msg buffer
  */
-int msg_receive(uint32_t receiver, struct message* msg);
+int msg_receive(uint32_t receiver, struct message* out_msg, size_t max_size);
 
 /**
  * Check for pending messages (Non-blocking poll)
