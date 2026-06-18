@@ -35,6 +35,8 @@
 #ifndef SERIAL_H
 #define SERIAL_H
 
+#include "kernel.h" // For size_t
+
 // =============================================================================
 // Driver Interface
 // =============================================================================
@@ -48,16 +50,24 @@ void serial_init(void);
 /**
  * Write a single character to serial port.
  * Blocking call (waits for transmit buffer empty).
- * 
+ *
  * @param c Character to send
  */
 void serial_putc(char c);
 
 /**
  * Write a string to serial port.
- * 
+ *
  * @param str Null-terminated string
  */
 void serial_puts(const char* str);
+
+/**
+ * Write a buffer of known length to serial port.
+ *
+ * @param buf Data buffer
+ * @param len Length of data
+ */
+void serial_write(const char* buf, size_t len);
 
 #endif // SERIAL_H
