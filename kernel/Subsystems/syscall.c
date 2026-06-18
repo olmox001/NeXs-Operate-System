@@ -43,6 +43,48 @@
 #include "timer.h"
 
 // =============================================================================
+// Security Validation
+// =============================================================================
+
+// Symbol defined in linker script (end of kernel image)
+extern char _kernel_end[];
+
+/**
+ * Validates that a user-provided pointer points to a safe memory region.
+ * Safe regions are:
+ * 1. Outside the Kernel Image [0x100000, _kernel_end)
+ * 2. Not NULL
+ * 3. Not wrapping around 64-bit address space
+ *
+ * Note: Heap usually starts after _kernel_end, so >= _kernel_end is safe.
+ * We also assume pointers < 0x100000 (Low Memory) are potentially unsafe
+ * if they access BIOS data, but for now we enforce >= _kernel_end.
+ */
+static bool is_safe_ptr(const void* ptr, size_t size) {
+    uint64_t start = (uint64_t)ptr;
+    uint64_t end = start + size;
+
+    // Check 1: NULL pointer
+    if (start == 0) return false;
+
+    // Check 2: Overflow
+    if (end < start) return false;
+
+    // Check 3: Kernel Image Overlap
+    // Kernel resides at [0x100000, (uint64_t)_kernel_end)
+    uint64_t k_end = (uint64_t)_kernel_end;
+
+    // Ensure the range is STRICTLY outside the kernel image.
+    // We treat anything below _kernel_end as "Kernel/Reserved" to be safe,
+    // effectively enforcing that user data must come from the Heap (which is above).
+    if (start < k_end) {
+        return false;
+    }
+
+    return true;
+}
+
+// =============================================================================
 // Internal Syscall Implementation Functions
 // =============================================================================
 
@@ -51,10 +93,26 @@
  * Currently only supports writing to stdout (FD 1) via VGA.
  */
 static int64_t sys_write(int fd, const char* buf, size_t len) {
-    (void)fd; (void)len; // Unused for now
-    if (!buf) return -1;
-    vga_puts(buf);
-    return 0; // Success (TODO: Return bytes written)
+    (void)fd;
+
+    // 1. Validate Pointer
+    if (!is_safe_ptr(buf, len)) return -1;
+
+    // 2. Limit Length (Prevent DoS / massive locks)
+    if (len > 1024) len = 1024;
+
+    // 3. Atomic Write Loop
+    // Use cli/sti to prevent interleaving output from multiple tasks
+    uint64_t flags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(flags));
+
+    for (size_t i = 0; i < len; i++) {
+        vga_putc(buf[i]);
+    }
+
+    if (flags & 0x200) asm volatile("sti");
+
+    return len;
 }
 
 /**
@@ -64,7 +122,10 @@ static int64_t sys_write(int fd, const char* buf, size_t len) {
  */
 static int64_t sys_read(int fd, char* buf, size_t len) {
     (void)fd; (void)len;
-    if (!buf) return -1;
+
+    // Validate Pointer (Writing 1 byte)
+    if (!is_safe_ptr(buf, 1)) return -1;
+
     if (!keyboard_available()) return 0;
     *buf = keyboard_getchar();
     return 1;
@@ -91,6 +152,11 @@ static int64_t sys_uptime(void) {
  * populates variables with memory stats.
  */
 static int64_t sys_meminfo(size_t* total, size_t* used, size_t* free_mem) {
+    // Validate Pointers
+    if (total && !is_safe_ptr(total, sizeof(size_t))) return -1;
+    if (used && !is_safe_ptr(used, sizeof(size_t))) return -1;
+    if (free_mem && !is_safe_ptr(free_mem, sizeof(size_t))) return -1;
+
     buddy_stats(total, used, free_mem);
     return 0;
 }
@@ -148,6 +214,10 @@ static int64_t sys_msgrcv(uint32_t task_id) {
  * Retrieves state and priority of a process.
  */
 static int64_t sys_taskinfo(uint32_t pid, uint32_t* state, uint8_t* priority) {
+    // Validate Pointers
+    if (state && !is_safe_ptr(state, sizeof(uint32_t))) return -1;
+    if (priority && !is_safe_ptr(priority, sizeof(uint8_t))) return -1;
+
     // Find task by PID
     if (!current_task) return -1;
     struct task* t = current_task;
@@ -189,14 +259,14 @@ static int64_t sys_getfreq(void) {
  */
 void syscall_handler(struct interrupt_frame* frame) {
     if (!frame) return;
-    
+
     uint64_t num = frame->rax;
     uint64_t a1 = frame->rdi;
     uint64_t a2 = frame->rsi;
     uint64_t a3 = frame->rdx;
-    
+
     int64_t ret = -1;
-    
+
     switch (num) {
         case SYS_READ:      ret = sys_read((int)a1, (char*)a2, (size_t)a3); break;
         case SYS_WRITE:     ret = sys_write((int)a1, (const char*)a2, (size_t)a3); break;
@@ -213,7 +283,7 @@ void syscall_handler(struct interrupt_frame* frame) {
         case SYS_GETFREQ:   ret = sys_getfreq(); break;
         default: ret = -1; break;
     }
-    
+
     frame->rax = (uint64_t)ret; // Store return value
 }
 
