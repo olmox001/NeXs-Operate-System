@@ -42,6 +42,7 @@ static void cmd_echo(const char* args);
 static void cmd_mem(void);
 static void cmd_perms(const char* args);
 static void cmd_msg(const char* args);
+static void cmd_msg_test(void);
 static void cmd_version(void);
 static void cmd_uptime(void);
 static void cmd_tasks(void);
@@ -158,6 +159,7 @@ void shell_execute(const char* cmd) {
     else if (strcmp(cmd_name, "mem") == 0)      cmd_mem();
     else if (strcmp(cmd_name, "perms") == 0)    cmd_perms(args);
     else if (strcmp(cmd_name, "msg") == 0)      cmd_msg(args);
+    else if (strcmp(cmd_name, "msg_test") == 0) cmd_msg_test();
     else if (strcmp(cmd_name, "version") == 0)  cmd_version();
     else if (strcmp(cmd_name, "uptime") == 0)   cmd_uptime();
     else if (strcmp(cmd_name, "tasks") == 0)    cmd_tasks();
@@ -361,6 +363,53 @@ static void cmd_msg(const char* args) {
     } else {
         vga_set_color(VGA_RED, VGA_BLACK);
         vga_puts("Send Failed (Queue Full/Invalid ID).\n");
+        vga_set_color(VGA_WHITE, VGA_BLACK);
+    }
+}
+
+static void cmd_msg_test(void) {
+    uint32_t my_pid = current_task ? current_task->pid : 0;
+    const char* payload = "A very long message payload to test buffer overflow checks in IPC";
+    int ret;
+
+    vga_puts("Test 1: Sending message to self...\n");
+    // Send message (payload length + 1 for null terminator)
+    ret = msg_send(my_pid, my_pid, MSG_TYPE_DATA, payload, strlen(payload) + 1);
+    if (ret != 0) {
+        vga_puts("Failed to send message.\n");
+        return;
+    }
+
+    vga_puts("Test 2: Receive with small buffer (Expect Failure -2)...\n");
+    // Allocate small buffer on stack
+    uint8_t small_buf[sizeof(struct message) + 10]; // header + 10 bytes
+    ret = msg_receive(my_pid, (struct message*)small_buf, sizeof(small_buf));
+
+    if (ret == -2) {
+        vga_set_color(VGA_GREEN, VGA_BLACK);
+        vga_puts("PASS: Received error -2 as expected.\n");
+        vga_set_color(VGA_WHITE, VGA_BLACK);
+    } else {
+        vga_set_color(VGA_RED, VGA_BLACK);
+        vga_puts("FAIL: Did not get error -2. Ret=");
+        vga_puti(ret);
+        vga_puts("\n");
+        vga_set_color(VGA_WHITE, VGA_BLACK);
+    }
+
+    vga_puts("Test 3: Receive with large buffer (Expect Success 0)...\n");
+    uint8_t large_buf[sizeof(struct message) + 128];
+    ret = msg_receive(my_pid, (struct message*)large_buf, sizeof(large_buf));
+
+    if (ret == 0) {
+         vga_set_color(VGA_GREEN, VGA_BLACK);
+        vga_puts("PASS: Received message.\n");
+        vga_set_color(VGA_WHITE, VGA_BLACK);
+    } else {
+        vga_set_color(VGA_RED, VGA_BLACK);
+        vga_puts("FAIL: Ret=");
+        vga_puti(ret);
+        vga_puts("\n");
         vga_set_color(VGA_WHITE, VGA_BLACK);
     }
 }
