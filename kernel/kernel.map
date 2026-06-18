@@ -1,0 +1,496 @@
+
+Merging program properties
+
+Removed property 0xc0000002 to merge kernel.o (0x3) and kernel_entry.o (not found)
+Removed property 0xc0000002 to merge kernel.o (not found) and Subsystems/libx.o (0x3)
+Removed property 0xc0000002 to merge kernel.o (not found) and Subsystems/buddy.o (0x3)
+Removed property 0xc0000002 to merge kernel.o (not found) and Subsystems/messages.o (0x3)
+Removed property 0xc0000002 to merge kernel.o (not found) and Subsystems/permissions.o (0x3)
+Removed property 0xc0000002 to merge kernel.o (not found) and Subsystems/shell.o (0x3)
+Removed property 0xc0000002 to merge kernel.o (not found) and Subsystems/scheduler.o (0x3)
+Removed property 0xc0000002 to merge kernel.o (not found) and Subsystems/syscall.o (0x3)
+Removed property 0xc0000002 to merge kernel.o (not found) and Subsystems/module.o (0x3)
+Removed property 0xc0000002 to merge kernel.o (not found) and Subsystems/sblock.o (0x3)
+Removed property 0xc0000002 to merge kernel.o (not found) and Subsystems/idt.o (0x3)
+Removed property 0xc0000002 to merge kernel.o (not found) and Subsystems/handlers.o (0x3)
+Removed property 0xc0000002 to merge kernel.o (not found) and Drivers/vga.o (0x3)
+Removed property 0xc0000002 to merge kernel.o (not found) and Drivers/serial.o (0x3)
+Removed property 0xc0000002 to merge kernel.o (not found) and Drivers/keyboard.o (0x3)
+Removed property 0xc0000002 to merge kernel.o (not found) and Drivers/timer.o (0x3)
+
+Discarded input sections
+
+ .comment       0x0000000000000000       0x2c kernel.o
+ .note.gnu.property
+                0x0000000000000000       0x20 kernel.o
+ .eh_frame      0x0000000000000000       0xa8 kernel.o
+ .comment       0x0000000000000000       0x2c Subsystems/libx.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Subsystems/libx.o
+ .eh_frame      0x0000000000000000      0x328 Subsystems/libx.o
+ .comment       0x0000000000000000       0x2c Subsystems/buddy.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Subsystems/buddy.o
+ .eh_frame      0x0000000000000000      0x120 Subsystems/buddy.o
+ .comment       0x0000000000000000       0x2c Subsystems/messages.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Subsystems/messages.o
+ .eh_frame      0x0000000000000000      0x220 Subsystems/messages.o
+ .comment       0x0000000000000000       0x2c Subsystems/permissions.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Subsystems/permissions.o
+ .eh_frame      0x0000000000000000       0xd0 Subsystems/permissions.o
+ .comment       0x0000000000000000       0x2c Subsystems/shell.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Subsystems/shell.o
+ .eh_frame      0x0000000000000000       0xd0 Subsystems/shell.o
+ .comment       0x0000000000000000       0x2c Subsystems/scheduler.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Subsystems/scheduler.o
+ .eh_frame      0x0000000000000000      0x190 Subsystems/scheduler.o
+ .comment       0x0000000000000000       0x2c Subsystems/syscall.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Subsystems/syscall.o
+ .eh_frame      0x0000000000000000      0x128 Subsystems/syscall.o
+ .comment       0x0000000000000000       0x2c Subsystems/module.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Subsystems/module.o
+ .eh_frame      0x0000000000000000      0x2f8 Subsystems/module.o
+ .comment       0x0000000000000000       0x2c Subsystems/sblock.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Subsystems/sblock.o
+ .eh_frame      0x0000000000000000       0xc0 Subsystems/sblock.o
+ .comment       0x0000000000000000       0x2c Subsystems/idt.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Subsystems/idt.o
+ .eh_frame      0x0000000000000000       0xa0 Subsystems/idt.o
+ .comment       0x0000000000000000       0x2c Subsystems/handlers.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Subsystems/handlers.o
+ .eh_frame      0x0000000000000000       0x78 Subsystems/handlers.o
+ .comment       0x0000000000000000       0x2c Drivers/vga.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Drivers/vga.o
+ .eh_frame      0x0000000000000000      0x110 Drivers/vga.o
+ .comment       0x0000000000000000       0x2c Drivers/serial.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Drivers/serial.o
+ .eh_frame      0x0000000000000000       0x58 Drivers/serial.o
+ .comment       0x0000000000000000       0x2c Drivers/keyboard.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Drivers/keyboard.o
+ .eh_frame      0x0000000000000000       0x80 Drivers/keyboard.o
+ .comment       0x0000000000000000       0x2c Drivers/timer.o
+ .note.gnu.property
+                0x0000000000000000       0x20 Drivers/timer.o
+ .eh_frame      0x0000000000000000      0x120 Drivers/timer.o
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+*default*        0x0000000000000000 0xffffffffffffffff
+
+Linker script and memory map
+
+                0x0000000000100000                . = 0x100000
+
+.text           0x0000000000100000     0x62ec
+ *(.text)
+ .text          0x0000000000100000       0x5e kernel_entry.o
+                0x0000000000100000                _start
+ *fill*         0x000000000010005e        0x2
+ .text          0x0000000000100060      0x613 kernel.o
+                0x00000000001000e0                kernel_main
+                0x0000000000100560                kernel_panic
+ *fill*         0x0000000000100673        0xd
+ .text          0x0000000000100680      0xb4a Subsystems/libx.o
+                0x0000000000100680                memset
+                0x00000000001007a0                memcpy
+                0x0000000000100900                memmove
+                0x0000000000100a40                memcmp
+                0x0000000000100b00                strlen
+                0x0000000000100b50                strcpy
+                0x0000000000100bf0                strncpy
+                0x0000000000100ce0                strcmp
+                0x0000000000100d80                strncmp
+                0x0000000000100e40                strcat
+                0x0000000000100f00                strchr
+                0x0000000000100f40                itoa
+                0x0000000000101040                uitoa
+                0x0000000000101110                atoi
+ *fill*         0x00000000001011ca        0x6
+ .text          0x00000000001011d0      0x555 Subsystems/buddy.o
+                0x00000000001011d0                buddy_init
+                0x00000000001012a0                buddy_init_e820
+                0x0000000000101410                buddy_alloc
+                0x0000000000101510                buddy_free
+                0x0000000000101650                buddy_stats
+                0x00000000001016a0                secure_region_init
+                0x00000000001016d0                secure_alloc
+                0x0000000000101720                secure_free
+ *fill*         0x0000000000101725        0xb
+ .text          0x0000000000101730      0x645 Subsystems/messages.o
+                0x00000000001017a0                msg_init
+                0x0000000000101840                msg_alloc
+                0x0000000000101970                msg_free
+                0x00000000001019a0                msg_send
+                0x0000000000101b20                msg_send_ptr
+                0x0000000000101be0                msg_receive
+                0x0000000000101ca0                msg_available
+                0x0000000000101cd0                msg_count
+                0x0000000000101d00                msg_clear
+ *fill*         0x0000000000101d75        0xb
+ .text          0x0000000000101d80      0x382 Subsystems/permissions.o
+                0x0000000000101d80                perm_init
+                0x0000000000101e00                perm_create_task
+                0x0000000000101ed0                perm_destroy_task
+                0x0000000000101f00                perm_grant
+                0x0000000000101f80                perm_revoke
+                0x0000000000102000                perm_check
+                0x0000000000102040                perm_get
+                0x0000000000102070                perm_inherit
+                0x00000000001020b0                perm_name
+ *fill*         0x0000000000102102        0xe
+ .text          0x0000000000102110      0xf61 Subsystems/shell.o
+                0x0000000000102110                shell_init
+                0x00000000001021d0                shell_execute
+                0x0000000000102e70                shell_run
+ *fill*         0x0000000000103071        0xf
+ .text          0x0000000000103080      0x677 Subsystems/scheduler.o
+                0x0000000000103080                scheduler_init
+                0x0000000000103190                task_create_full
+                0x00000000001033c0                task_create_priority
+                0x00000000001033e0                task_create
+                0x0000000000103400                yield
+                0x0000000000103410                sleep
+                0x0000000000103460                scheduler_switch
+                0x0000000000103650                task_set_priority
+                0x0000000000103680                task_get_priority
+                0x00000000001036a0                task_set_uid
+                0x00000000001036b0                task_get_uid
+                0x00000000001036d0                exit
+                0x00000000001036f0                schedule
+ *fill*         0x00000000001036f7        0x9
+ .text          0x0000000000103700      0x393 Subsystems/syscall.o
+                0x0000000000103700                syscall_handler
+                0x0000000000103910                syscall_init
+                0x0000000000103930                write
+                0x0000000000103960                read
+                0x0000000000103990                getpid
+                0x00000000001039b0                sched_yield
+                0x00000000001039d0                _exit
+                0x00000000001039f0                sys_uptime_wrapper
+                0x0000000000103a10                sys_sleep_wrapper
+                0x0000000000103a30                syscall_write
+                0x0000000000103a60                syscall_yield
+                0x0000000000103a80                syscall_getpid
+ *fill*         0x0000000000103a93        0xd
+ .text          0x0000000000103aa0      0x68a Subsystems/module.o
+                0x0000000000103c50                module_register
+                0x0000000000103ce0                module_find
+                0x0000000000103d40                module_unregister
+                0x0000000000103e10                modules_init
+                0x0000000000103ea0                modules_list
+                0x0000000000103fc0                device_register
+                0x0000000000104040                device_unregister
+                0x00000000001040d0                device_find
+ *fill*         0x000000000010412a        0x6
+ .text          0x0000000000104130      0x281 Subsystems/sblock.o
+                0x0000000000104130                sblock_alloc
+                0x00000000001041c0                sblock_free
+                0x0000000000104210                sblock_share
+                0x0000000000104260                sblock_verify
+                0x00000000001042f0                sblock_sign
+                0x0000000000104360                sblock_access
+ *fill*         0x00000000001043b1        0xf
+ .text          0x00000000001043c0      0xf43 Subsystems/idt.o
+                0x00000000001043c0                idt_set_gate
+                0x0000000000104410                idt_init
+                0x0000000000105060                isr_exception_handler
+ *fill*         0x0000000000105303        0xd
+ .text          0x0000000000105310      0x100 Subsystems/handlers.o
+                0x0000000000105310                irq_install_handler
+                0x0000000000105330                irq_uninstall_handler
+                0x0000000000105350                irq_common_handler
+                0x00000000001053c0                irq_init
+ .text          0x0000000000105410      0x475 Drivers/vga.o
+                0x0000000000105410                vga_clear
+                0x0000000000105490                vga_init
+                0x00000000001054a0                vga_set_color
+                0x00000000001054c0                vga_scroll
+                0x0000000000105530                vga_putc
+                0x0000000000105690                vga_puts
+                0x00000000001056e0                vga_puti
+                0x0000000000105750                vga_putx
+                0x0000000000105800                vga_set_cursor
+                0x0000000000105860                vga_get_cursor
+ *fill*         0x0000000000105885        0xb
+ .text          0x0000000000105890      0x108 Drivers/serial.o
+                0x0000000000105890                serial_putc
+                0x00000000001058b0                serial_puts
+                0x0000000000105900                serial_init
+ *fill*         0x0000000000105998        0x8
+ .text          0x00000000001059a0      0x235 Drivers/keyboard.o
+                0x00000000001059a0                keyboard_handler
+                0x0000000000105ae0                keyboard_init
+                0x0000000000105b30                keyboard_getchar
+                0x0000000000105b80                keyboard_available
+                0x0000000000105bb0                keyboard_clear
+ *fill*         0x0000000000105bd5        0xb
+ .text          0x0000000000105be0      0x3f3 Drivers/timer.o
+                0x0000000000105be0                timer_init
+                0x0000000000105d20                timer_tick
+                0x0000000000105d40                timer_get_tsc
+                0x0000000000105d50                timer_get_freq
+                0x0000000000105d60                timer_get_ticks
+                0x0000000000105d70                timer_get_ns
+                0x0000000000105dc0                timer_get_us
+                0x0000000000105e10                timer_get_ms
+                0x0000000000105e50                timer_get_sec
+                0x0000000000105eb0                timer_delay_ns
+                0x0000000000105f20                timer_delay_us
+                0x0000000000105f90                timer_delay_ms
+ *fill*         0x0000000000105fd3        0xd
+ .text          0x0000000000105fe0      0x2dc Subsystems/interrupts.o
+                0x0000000000105fe0                isr0
+                0x0000000000105fea                isr1
+                0x0000000000105ff4                isr2
+                0x0000000000105ffe                isr3
+                0x0000000000106008                isr4
+                0x0000000000106012                isr5
+                0x000000000010601c                isr6
+                0x0000000000106026                isr7
+                0x0000000000106030                isr8
+                0x0000000000106038                isr9
+                0x0000000000106042                isr10
+                0x000000000010604a                isr11
+                0x0000000000106052                isr12
+                0x000000000010605a                isr13
+                0x0000000000106062                isr14
+                0x000000000010606a                isr15
+                0x0000000000106074                isr16
+                0x000000000010607e                isr17
+                0x0000000000106086                isr18
+                0x0000000000106090                isr19
+                0x000000000010609a                isr20
+                0x00000000001060a4                isr21
+                0x00000000001060ae                isr22
+                0x00000000001060b8                isr23
+                0x00000000001060c2                isr24
+                0x00000000001060cc                isr25
+                0x00000000001060d6                isr26
+                0x00000000001060e0                isr27
+                0x00000000001060ea                isr28
+                0x00000000001060f4                isr29
+                0x00000000001060fe                isr30
+                0x0000000000106106                isr31
+                0x0000000000106110                irq0
+                0x000000000010611a                irq1
+                0x0000000000106124                irq2
+                0x000000000010612e                irq3
+                0x0000000000106138                irq4
+                0x0000000000106142                irq5
+                0x000000000010614c                irq6
+                0x0000000000106156                irq7
+                0x0000000000106160                irq8
+                0x000000000010616a                irq9
+                0x0000000000106174                irq10
+                0x000000000010617e                irq11
+                0x0000000000106188                irq12
+                0x0000000000106192                irq13
+                0x000000000010619c                irq14
+                0x00000000001061a6                irq15
+                0x00000000001061b0                isr128
+ *(.text.*)
+ .text.unlikely
+                0x00000000001062bc       0x30 Subsystems/libx.o
+
+.iplt           0x00000000001062ec        0x0
+ .iplt          0x00000000001062ec        0x0 kernel_entry.o
+
+.rodata         0x0000000000107000     0x172a
+ *(.rodata)
+ .rodata        0x0000000000107000       0x80 Subsystems/permissions.o
+ .rodata        0x0000000000107080       0x10 Subsystems/scheduler.o
+ .rodata        0x0000000000107090      0x328 Subsystems/syscall.o
+ *fill*         0x00000000001073b8        0x8
+ .rodata        0x00000000001073c0      0x100 Drivers/keyboard.o
+ *(.rodata.*)
+ .rodata.str1.1
+                0x00000000001074c0      0xaae kernel.o
+                                        0x29d (size before relaxing)
+ *fill*         0x0000000000107f6e        0x2
+ .rodata.str1.8
+                0x0000000000107f70      0x7b3 kernel.o
+                                        0x189 (size before relaxing)
+ .rodata.str1.1
+                0x0000000000108723       0x6c Subsystems/libx.o
+ .rodata.str1.8
+                0x0000000000108723       0xc5 Subsystems/libx.o
+ .rodata.str1.1
+                0x0000000000108723       0x30 Subsystems/buddy.o
+ .rodata.str1.8
+                0x0000000000108723       0x6e Subsystems/buddy.o
+ .rodata.str1.1
+                0x0000000000108723       0xcc Subsystems/permissions.o
+ .rodata.str1.8
+                0x0000000000108723       0x1f Subsystems/permissions.o
+ .rodata.str1.1
+                0x0000000000108723      0x306 Subsystems/shell.o
+ .rodata.str1.8
+                0x0000000000108723      0x3bc Subsystems/shell.o
+ .rodata.str1.1
+                0x0000000000108723       0x2f Subsystems/scheduler.o
+ .rodata.str1.8
+                0x0000000000108723       0x55 Subsystems/scheduler.o
+ *fill*         0x0000000000108723        0x1
+ .rodata.cst2   0x0000000000108724        0x6 Subsystems/scheduler.o
+                                          0x2 (size before relaxing)
+ .rodata.str1.8
+                0x000000000010872a       0x31 Subsystems/syscall.o
+ .rodata.str1.8
+                0x000000000010872a       0x51 Subsystems/module.o
+ .rodata.str1.1
+                0x000000000010872a       0x7d Subsystems/module.o
+ .rodata.cst2   0x000000000010872a        0x2 Subsystems/sblock.o
+ .rodata.str1.1
+                0x000000000010872a      0x30d Subsystems/idt.o
+ .rodata.cst2   0x000000000010872a        0x2 Subsystems/idt.o
+ .rodata.str1.1
+                0x000000000010872a        0x3 Drivers/vga.o
+ .rodata.str1.8
+                0x000000000010872a       0x23 Drivers/serial.o
+ .rodata.str1.1
+                0x000000000010872a       0x21 Drivers/timer.o
+
+.rela.dyn       0x0000000000108730        0x0
+ .rela.got      0x0000000000108730        0x0 kernel_entry.o
+ .rela.iplt     0x0000000000108730        0x0 kernel_entry.o
+ .rela.text     0x0000000000108730        0x0 kernel_entry.o
+
+.data           0x0000000000109000      0x141
+ *(.data)
+ .data          0x0000000000109000       0x22 kernel_entry.o
+ .data          0x0000000000109022        0x0 kernel.o
+ .data          0x0000000000109022        0x0 Subsystems/libx.o
+ .data          0x0000000000109022        0x0 Subsystems/buddy.o
+ .data          0x0000000000109022        0x0 Subsystems/messages.o
+ .data          0x0000000000109022        0x0 Subsystems/permissions.o
+ *fill*         0x0000000000109022        0x6
+ .data          0x0000000000109028        0x8 Subsystems/shell.o
+                0x0000000000109028                kernel_end_marker
+ .data          0x0000000000109030        0x0 Subsystems/scheduler.o
+ .data          0x0000000000109030        0x0 Subsystems/syscall.o
+ .data          0x0000000000109030        0x0 Subsystems/module.o
+ .data          0x0000000000109030        0x0 Subsystems/sblock.o
+ *fill*         0x0000000000109030       0x10
+ .data          0x0000000000109040      0x100 Subsystems/idt.o
+                0x0000000000109040                exception_messages
+ .data          0x0000000000109140        0x0 Subsystems/handlers.o
+ .data          0x0000000000109140        0x1 Drivers/vga.o
+ .data          0x0000000000109141        0x0 Drivers/serial.o
+ .data          0x0000000000109141        0x0 Drivers/keyboard.o
+ .data          0x0000000000109141        0x0 Drivers/timer.o
+ *(.data.*)
+
+.got            0x0000000000109148        0x0
+ .got           0x0000000000109148        0x0 kernel_entry.o
+
+.got.plt        0x0000000000109148        0x0
+ .got.plt       0x0000000000109148        0x0 kernel_entry.o
+
+.igot.plt       0x0000000000109148        0x0
+ .igot.plt      0x0000000000109148        0x0 kernel_entry.o
+
+.bss            0x000000000010a000     0x2640
+ *(COMMON)
+ *(.bss)
+ .bss           0x000000000010a000        0x0 kernel.o
+ .bss           0x000000000010a000        0x0 Subsystems/libx.o
+ .bss           0x000000000010a000       0xc0 Subsystems/buddy.o
+                0x000000000010a000                g_secure_base
+                0x000000000010a008                g_heap_size
+                0x000000000010a010                g_heap_base
+                0x000000000010a018                g_total_memory
+ .bss           0x000000000010a0c0      0x248 Subsystems/messages.o
+ *fill*         0x000000000010a308       0x18
+ .bss           0x000000000010a320      0x820 Subsystems/permissions.o
+ .bss           0x000000000010ab40      0x8c0 Subsystems/shell.o
+ .bss           0x000000000010b400       0x18 Subsystems/scheduler.o
+                0x000000000010b400                current_task
+ .bss           0x000000000010b418        0x0 Subsystems/syscall.o
+ .bss           0x000000000010b418       0x10 Subsystems/module.o
+ .bss           0x000000000010b428        0x0 Subsystems/sblock.o
+ *fill*         0x000000000010b428       0x18
+ .bss           0x000000000010b440     0x1020 Subsystems/idt.o
+ .bss           0x000000000010c460       0x80 Subsystems/handlers.o
+ .bss           0x000000000010c4e0        0x8 Drivers/vga.o
+ .bss           0x000000000010c4e8        0x0 Drivers/serial.o
+ *fill*         0x000000000010c4e8       0x18
+ .bss           0x000000000010c500      0x120 Drivers/keyboard.o
+ .bss           0x000000000010c620       0x20 Drivers/timer.o
+ *(.bss.*)
+                0x000000000010d000                . = ALIGN (0x1000)
+                0x000000000010d000                _kernel_end = .
+
+/DISCARD/
+ *(.eh_frame)
+ *(.comment)
+LOAD kernel_entry.o
+LOAD kernel.o
+LOAD Subsystems/libx.o
+LOAD Subsystems/buddy.o
+LOAD Subsystems/messages.o
+LOAD Subsystems/permissions.o
+LOAD Subsystems/shell.o
+LOAD Subsystems/scheduler.o
+LOAD Subsystems/syscall.o
+LOAD Subsystems/module.o
+LOAD Subsystems/sblock.o
+LOAD Subsystems/idt.o
+LOAD Subsystems/handlers.o
+LOAD Drivers/vga.o
+LOAD Drivers/serial.o
+LOAD Drivers/keyboard.o
+LOAD Drivers/timer.o
+LOAD Subsystems/interrupts.o
+OUTPUT(x64kernel.elf elf64-x86-64)
+
+.note.GNU-stack
+                0x0000000000000000        0x0
+ .note.GNU-stack
+                0x0000000000000000        0x0 kernel_entry.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 kernel.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Subsystems/libx.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Subsystems/buddy.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Subsystems/messages.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Subsystems/permissions.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Subsystems/shell.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Subsystems/scheduler.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Subsystems/syscall.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Subsystems/module.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Subsystems/sblock.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Subsystems/idt.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Subsystems/handlers.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Drivers/vga.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Drivers/serial.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Drivers/keyboard.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Drivers/timer.o
+ .note.GNU-stack
+                0x0000000000000000        0x0 Subsystems/interrupts.o
