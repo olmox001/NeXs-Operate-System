@@ -1,0 +1,4 @@
+## 2025-05-02 - IPC Buffer Overflow Fix
+**Vulnerability:** `msg_receive` in `messages.c` performed a `memcpy` into a caller-provided buffer without validating that the buffer was large enough to hold the message payload, leading to a potential heap/stack overflow.
+**Learning:** Even internal kernel functions should assume callers might provide invalid arguments. Relying on "implicit contracts" (caller must allocate enough) is dangerous in C, especially for IPC. Also learned that `PID 0` acts as a broadcast address in `msg_send`, causing deadlock if a task (like init running as PID 0) tries to send to itself using generic logic, as the message is never queued for the sender.
+**Prevention:** Always include explicit buffer size parameters (`max_size`) in APIs that write to caller-provided memory and validate `required_size <= max_size` before copying.
