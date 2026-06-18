@@ -286,6 +286,36 @@ uint64_t scheduler_switch(uint64_t rsp) {
 }
 
 // =============================================================================
+// Helper API
+// =============================================================================
+
+struct task* scheduler_get_task(uint32_t pid) {
+    if (!task_list) return NULL;
+
+    struct task* t = task_list;
+    do {
+        if (t->pid == pid) return t;
+        t = t->next;
+    } while (t != task_list);
+
+    return NULL;
+}
+
+void scheduler_wake(struct task* t) {
+    if (t && (t->state == TASK_WAITING_MSG || t->state == TASK_SLEEPING || t->state == TASK_BLOCKED)) {
+        t->state = TASK_READY;
+        t->quantum = t->base_quantum; // Priority boost on wake?
+    }
+}
+
+void scheduler_wait_msg(void) {
+    if (!current_task) return;
+
+    current_task->state = TASK_WAITING_MSG;
+    yield();
+}
+
+// =============================================================================
 // Task Accessors
 // =============================================================================
 
