@@ -1,0 +1,43 @@
+
+[SERIAL] Serial Port Initialized
+DEBUG: Entered kernel_main
+Info Ptr: 0x85f0
+Magic: 0xdeadbeef
+Expected: 0xdeadbeef
+Boot Info OK
+
+  ========================================
+   x86_64 Kernel 0.0.2
+  ========================================
+
+Initializing kernel subsystems...
+
+DEBUG: Init IDT...
+DEBUG: idt_init start
+DEBUG: memset done
+DEBUG: pic_remap done
+DEBUG: setup gates done
+DEBUG: idt_load done
+  [ OK ] Interrupt Descriptor TableDEBUG: Init IRQ...
+      Calibrating TSC... 2308 MHz
+  [ OK ] IRQ HandlersDEBUG: Init Buddy...
+      E820 entries: 7, Total: 255 MB
+DEBUG: buddy_init_e820
+DEBUG: buddy_init core
+  [ OK ] Memory Allocator (Buddy)      Heap: 259904 KB | Secure: 64 KBDEBUG: Init Keyboard...
+  [ OK ] PS/2 Keyboard Driver  [ OK ] IPC Message System  [ OK ] Capability System (Royalty)      Task 0 (kernel): All permissions
+      Task 1 created with user permissions
+DEBUG: Running msg_receive security test...
+PASS: Detected small buffer (-2)
+PASS: Received with correct buffer
+==> Kernel initialization complete!
+
+DEBUG: Scheduler Init...
+DEBUG: Scheduler Initialized (PID 0 Active)
+  [ OK ] Priority SchedulerDEBUG: Syscall Mechanism Initialized (INT 0x80)
+  [ OK ] Syscall Interface (POSIX)=== NeXs-OS x86_64 Shell ===
+Type 'help' for commands
+
+      Shell Task (PID 1) Priority: HIGH
+  [ OK ] Multitasking SystemEnabling Interrupts...
+kernel$ qemu-system-x86_64: terminating on signal 15 from pid 1284 (-bash)
