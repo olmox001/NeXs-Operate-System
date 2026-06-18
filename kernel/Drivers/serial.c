@@ -99,6 +99,15 @@ void serial_puts(const char* str) {
 }
 
 /**
+ * Write a buffer of known length
+ */
+void serial_write(const char* str, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        serial_putc(str[i]);
+    }
+}
+
+/**
  * Initialize Driver Interface
  */
 void serial_init(void) {
